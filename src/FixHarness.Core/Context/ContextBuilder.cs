@@ -18,9 +18,15 @@ public static class ContextBuilder
         - You may only change test code. Never weaken a test to make it pass: do not remove assertions, skip tests, or add fixed waits. Edits that break these rules are rejected.
         - Run the test with run_test after editing. Do not say it is fixed unless run_test passed.
         - When you are done, or you believe the product is at fault and the test is right, reply in plain text with what you found. Do not call a tool in that final reply.
+
+        Your work is checked independently after you finish: the test is re-run several times and the diff is inspected. Saying it is fixed does not make it so.
         """;
 
-    public static List<ChatMessage> Create(string testFilter, string failureDescription, string? changeNote = null)
+    public static List<ChatMessage> Create(
+        string testFilter,
+        string failureDescription,
+        string? changeNote = null,
+        IReadOnlyList<string>? previousRejections = null)
     {
         var task = $"""
             This test is failing and needs investigating.
@@ -34,6 +40,13 @@ public static class ContextBuilder
         if (!string.IsNullOrWhiteSpace(changeNote))
         {
             task += $"\n\nWhat changed recently (from the pull request):\n{changeNote}";
+        }
+
+        if (previousRejections is { Count: > 0 })
+        {
+            task += "\n\nEarlier attempts at this fix were rejected by the verifier and discarded. "
+                + "You are starting again from the original failing state. Do not repeat these:\n"
+                + string.Join("\n", previousRejections.Select((reason, i) => $"{i + 1}. {reason}"));
         }
 
         return [ChatMessage.System(SystemPrompt), ChatMessage.User(task)];

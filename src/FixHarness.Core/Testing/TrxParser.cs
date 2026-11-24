@@ -26,18 +26,19 @@ public static class TrxParser
             var message = (string?)errorInfo?.Element(Ns + "Message");
             var stack = (string?)errorInfo?.Element(Ns + "StackTrace");
 
-            // Reqnroll reports a step with no binding as "inconclusive", with the
-            // useful text in StdOut rather than in ErrorInfo.
-            if (outcome != TestOutcome.Passed && string.IsNullOrWhiteSpace(message))
-            {
-                message = (string?)result.Element(Ns + "Output")?.Element(Ns + "StdOut");
-            }
+            // Keep what the test printed for tests that did not pass. Reqnroll puts
+            // "no matching step definition" there, and the sample hooks print
+            // browser console errors there.
+            var stdOut = outcome == TestOutcome.Passed ? null : (string?)result.Element(Ns + "Output")?.Element(Ns + "StdOut");
 
-            results.Add(new TestCaseResult(name, outcome, Shorten(message, 1500), Shorten(stack, 1200)));
+            results.Add(new TestCaseResult(name, outcome, Shorten(message, 1500), Shorten(stack, 1200), Tail(stdOut, 1500)));
         }
 
         return results;
     }
+
+    private static string? Tail(string? text, int max) =>
+        text is null || text.Length <= max ? text : "..." + text[^max..];
 
     private static string? Shorten(string? text, int max) =>
         text is null || text.Length <= max ? text : text[..max] + "...";

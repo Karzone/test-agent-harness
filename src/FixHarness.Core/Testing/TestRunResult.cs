@@ -10,7 +10,13 @@ public enum TestOutcome
     NotRun,
 }
 
-public sealed record TestCaseResult(string Name, TestOutcome Outcome, string? ErrorMessage = null, string? StackTrace = null);
+/// <param name="StdOut">What the test printed. Often holds the best clue (browser console errors, missing step bindings).</param>
+public sealed record TestCaseResult(
+    string Name,
+    TestOutcome Outcome,
+    string? ErrorMessage = null,
+    string? StackTrace = null,
+    string? StdOut = null);
 
 /// <summary>The result of running a set of tests once.</summary>
 public sealed record TestRunResult(bool BuildSucceeded, IReadOnlyList<TestCaseResult> Tests, string OutputTail)
@@ -49,6 +55,7 @@ public sealed record TestRunResult(bool BuildSucceeded, IReadOnlyList<TestCaseRe
                 text.AppendLine($"- {test.Name}: {test.Outcome}");
                 if (!string.IsNullOrWhiteSpace(test.ErrorMessage)) text.AppendLine($"  Error: {test.ErrorMessage.Trim()}");
                 if (!string.IsNullOrWhiteSpace(test.StackTrace)) text.AppendLine($"  Stack: {test.StackTrace.Trim()}");
+                if (!string.IsNullOrWhiteSpace(test.StdOut)) text.AppendLine($"  Output: {test.StdOut.Trim()}");
             }
         }
 
