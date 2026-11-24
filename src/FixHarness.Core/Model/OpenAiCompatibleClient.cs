@@ -20,9 +20,16 @@ public sealed class OpenAiCompatibleClient : IModelClient
         _model = model;
         _http = http ?? new HttpClient { Timeout = TimeSpan.FromMinutes(3) };
         _http.BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/");
-        _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        // Azure OpenAI accepts the key in this header; other providers ignore it.
-        _http.DefaultRequestHeaders.TryAddWithoutValidation("api-key", apiKey);
+
+        // Azure OpenAI takes an API key in its own header; everyone else uses a bearer token.
+        if (_http.BaseAddress.Host.EndsWith(".azure.com", StringComparison.OrdinalIgnoreCase))
+        {
+            _http.DefaultRequestHeaders.TryAddWithoutValidation("api-key", apiKey);
+        }
+        else
+        {
+            _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        }
     }
 
     public string Name => _model;

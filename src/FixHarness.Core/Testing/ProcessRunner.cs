@@ -18,7 +18,8 @@ public static class ProcessRunner
         IEnumerable<string> arguments,
         string workingDirectory,
         TimeSpan timeout,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyDictionary<string, string>? environment = null)
     {
         var startInfo = new ProcessStartInfo(fileName)
         {
@@ -31,6 +32,7 @@ public static class ProcessRunner
             CreateNoWindow = true,
         };
         foreach (var argument in arguments) startInfo.ArgumentList.Add(argument);
+        foreach (var (name, value) in environment ?? new Dictionary<string, string>()) startInfo.Environment[name] = value;
 
         using var process = new Process { StartInfo = startInfo };
         process.Start();

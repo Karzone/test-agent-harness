@@ -30,6 +30,16 @@ public sealed record TestRunResult(bool BuildSucceeded, IReadOnlyList<TestCaseRe
     /// </summary>
     public bool AllPassed => BuildSucceeded && Tests.Count > 0 && Tests.All(t => t.Outcome == TestOutcome.Passed);
 
+    /// <summary>
+    /// The build never got as far as compiling: packages could not be restored or
+    /// the SDK is missing. A compile error (CS....) is different: that can be a
+    /// genuine test issue, so it is not treated as an environment failure.
+    /// </summary>
+    public bool IsEnvironmentFailure =>
+        !BuildSucceeded
+        && System.Text.RegularExpressions.Regex.IsMatch(OutputTail, @"error NU\d+|error NETSDK\d+|Unable to load the service index|MSB1009|Timed out after")
+        && !System.Text.RegularExpressions.Regex.IsMatch(OutputTail, @"error CS\d+");
+
     public IEnumerable<string> NotPassedNames => Tests.Where(t => t.Outcome != TestOutcome.Passed).Select(t => t.Name);
 
     /// <summary>A compact description for the model and for the trace.</summary>

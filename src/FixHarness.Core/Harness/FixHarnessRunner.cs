@@ -34,6 +34,8 @@ public enum FixOutcome
     NotReproduced,
     /// <summary>The filter matched no tests, so there was nothing to judge.</summary>
     NoTestsMatched,
+    /// <summary>The tests could not be restored or started. An environment problem, not a test failure.</summary>
+    CouldNotRun,
 }
 
 public sealed record Attempt(int Number, LoopResult Loop, string Patch, VerifyResult Verification);
@@ -97,6 +99,10 @@ public sealed class FixHarnessRunner(IModelClient model, ITestRunner testRunner,
         var baseline = await testRunner.RunAsync(workspace.Path, request.Filter, cancellationToken);
         if (baseline.NoTestsMatched) return Finish(FixOutcome.NoTestsMatched, "The filter matched no tests.");
         if (baseline.AllPassed) return Finish(FixOutcome.NotReproduced, "The test passes without any change.");
+        if (baseline.IsEnvironmentFailure)
+        {
+            return Finish(FixOutcome.CouldNotRun, "The test project could not be restored or started, which is an environment problem and not something to fix in the tests.\n" + baseline.OutputTail);
+        }
         signature = FailureSignature.From(request.Filter, baseline);
 
         // ── 2. Triage: a person's label outranks the rules, the rules outrank the model ──

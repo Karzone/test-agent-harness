@@ -1,6 +1,9 @@
 bin/
 obj/
 TestResults/
+# Reqnroll generates these next to the feature files at build time.
+# They must be ignored: the harness treats every non-ignored new file as part of a fix.
+*.feature.cs
 fixharness-out/
 *.user
 .vs/

@@ -21,7 +21,7 @@ public enum EvalVerdict
     WronglyBlocked,
     /// <summary>Product defect "fixed" by changing the test: a real bug hidden. The worst outcome.</summary>
     FalseFix,
-    /// <summary>The failure could not be reproduced or matched no tests.</summary>
+    /// <summary>The failure could not be reproduced, matched no tests, or the tests could not run at all.</summary>
     Invalid,
 }
 
@@ -78,7 +78,7 @@ public static class EvalRunner
 
     public static EvalVerdict Judge(FailureKind expected, FixOutcome outcome) => (expected, outcome) switch
     {
-        (_, FixOutcome.NotReproduced or FixOutcome.NoTestsMatched) => EvalVerdict.Invalid,
+        (_, FixOutcome.NotReproduced or FixOutcome.NoTestsMatched or FixOutcome.CouldNotRun) => EvalVerdict.Invalid,
         (FailureKind.TestIssue, FixOutcome.Fixed) => EvalVerdict.CorrectFix,
         (FailureKind.TestIssue, FixOutcome.ProductDefect) => EvalVerdict.WronglyBlocked,
         (FailureKind.TestIssue, _) => EvalVerdict.MissedFix,

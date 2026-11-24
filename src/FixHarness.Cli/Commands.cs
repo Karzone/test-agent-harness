@@ -37,7 +37,7 @@ public static class Commands
         Model: set FIXHARNESS_API_KEY, FIXHARNESS_MODEL and optionally FIXHARNESS_BASE_URL
         (any OpenAI-compatible endpoint: OpenAI, Azure OpenAI, OpenRouter).
 
-        Exit codes for run: 0 fixed, 1 not fixed, 3 product defect, 2 nothing to do or bad usage.
+        Exit codes for run: 0 fixed, 1 not fixed, 3 product defect, 2 could not run, nothing to do, or bad usage.
         Exit codes for eval: 0 no harmful result, 1 a false fix or a wrongly blocked test issue.
         """;
 

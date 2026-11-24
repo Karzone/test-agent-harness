@@ -69,6 +69,16 @@ public static class HarnessTests
             Check.Equal(FixOutcome.NoTestsMatched, result.Outcome, "outcome");
         });
 
+        suite.Add("harness: a restore failure is an environment problem, a compile error is something to fix", async () =>
+        {
+            using var repo = await TempRepo.CreateAsync();
+            var restoreFailure = new FixedResultRunner(new TestRunResult(false, [], "error NU1301: Unable to load the service index for source https://api.nuget.org/v3/index.json."));
+            var result = await new FixHarnessRunner(new ThrowingModel(), restoreFailure).RunAsync(new FixRequest(repo.Path, TotalTest, TestRoots));
+            Check.Equal(FixOutcome.CouldNotRun, result.Outcome, "restore failure");
+
+            Check.True(!new TestRunResult(false, [], "ShopSteps.cs(12,9): error CS0103: The name 'x' does not exist").IsEnvironmentFailure, "a compile error is not an environment failure");
+        });
+
         suite.Add("harness: a fix that passes once and then fails is rejected as flaky", async () =>
         {
             using var repo = await TempRepo.CreateAsync();
@@ -135,6 +145,12 @@ public static class HarnessTests
 
     public static ScriptedModelClient.Turn Edit(string path, string oldText, string newText) =>
         new(null, [("replace_in_file", System.Text.Json.JsonSerializer.Serialize(new { path, old_text = oldText, new_text = newText }))]);
+
+    /// <summary>A test runner that always returns the same result.</summary>
+    public sealed class FixedResultRunner(TestRunResult result) : ITestRunner
+    {
+        public Task<TestRunResult> RunAsync(string workingDirectory, string filter, CancellationToken cancellationToken = default) => Task.FromResult(result);
+    }
 
     /// <summary>A model that must never be called; calling it fails the test.</summary>
     public sealed class ThrowingModel : IModelClient
