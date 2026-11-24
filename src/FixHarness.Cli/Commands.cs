@@ -1,28 +1,39 @@
+using System.Text.Json;
 using FixHarness.Harness;
+using FixHarness.Memory;
 using FixHarness.Testing;
+using FixHarness.Triage;
 
 namespace FixHarness.Cli;
 
 public static class Commands
 {
     public const string Help = """
-        fixharness list [--repo <path>]
-            List the planted failures in failures/manifest.json.
-
         fixharness run [--repo <path>] --failure <id>
         fixharness run [--repo <path>] --filter <dotnet test filter> [--base <git ref>] [--note <text>]
-            Triage one failing test, then fix it or report a product defect. Options:
+            Triage one failing test, then fix it or report a product defect.
               --base <ref>        the change that preceded the failure is the diff from <ref> to HEAD
               --note <text>       pull-request description, used as evidence
               --model <name>      model name, or scripted:<file-or-directory> to replay a script
               --attempts <n>      attempts before giving up (default 3)
               --verify-runs <n>   times the fixed test must pass (default 3)
+              --no-memory         do not read or write .fixharness/memory.jsonl
               --out <dir>         where to write report.md, trace.json and fix.patch
+
+        fixharness feedback --label test-issue|product-defect [--note <text>] [--out <dir>]
+            Correct the classification of the last run. The same failure is then
+            always classified your way, whatever the rules or the model say.
+
+        fixharness memory [--repo <path>]
+            Show what the harness has learned in this repository.
+
+        fixharness list [--repo <path>]
+            List the planted failures in failures/manifest.json.
 
         Model: set FIXHARNESS_API_KEY, FIXHARNESS_MODEL and optionally FIXHARNESS_BASE_URL
         (any OpenAI-compatible endpoint: OpenAI, Azure OpenAI, OpenRouter).
 
-        Exit codes: 0 fixed, 1 not fixed, 3 product defect, 2 nothing to do or bad usage.
+        Exit codes for run: 0 fixed, 1 not fixed, 3 product defect, 2 nothing to do or bad usage.
         """;
 
     public static int List(string repo)
@@ -41,18 +52,72 @@ public static class Commands
         var filter = options.Get("filter") ?? failure?.Filter ?? throw new ArgumentException("Pass --failure or --filter.");
 
         var model = ModelFactory.Create(options.Get("model"), repo, failure?.Id);
-        var harness = new FixHarnessRunner(model, new DotnetTestRunner(config.TestProject), Console.WriteLine);
+        var harness = new FixHarnessRunner(model, new DotnetTestRunner(config.TestProject), Console.WriteLine)
+        {
+            Memory = options.Get("no-memory") is null ? new FixMemory(MemoryPath(repo)) : null,
+        };
 
         Console.WriteLine($"Model: {model.Name}\nTest:  {filter}\n");
         var result = await harness.RunAsync(await BuildRequestAsync(options, repo, config, failure, filter));
 
         ReportWriter.Print(result, Console.WriteLine);
         WriteOutputs(result, OutDirectory(options, repo));
-
-        return ExitCode(result.Outcome);
+        return result.Outcome switch
+        {
+            FixOutcome.Fixed => 0,
+            FixOutcome.NotFixed => 1,
+            FixOutcome.ProductDefect => 3,
+            _ => 2,
+        };
     }
 
-    public static async Task<FixRequest> BuildRequestAsync(CliOptions options, string repo, RepoConfig config, PlantedFailure? failure, string filter)
+    public static int Feedback(CliOptions options, string repo)
+    {
+        var label = options.Get("label") switch
+        {
+            "test-issue" => FailureKind.TestIssue,
+            "product-defect" => FailureKind.ProductDefect,
+            _ => throw new ArgumentException("Pass --label test-issue or --label product-defect."),
+        };
+
+        var lastFailurePath = Path.Combine(OutDirectory(options, repo), "last-failure.json");
+        if (!File.Exists(lastFailurePath)) throw new FileNotFoundException("No previous run found. Run 'fixharness run' first, or pass the same --out directory.");
+
+        using var document = JsonDocument.Parse(File.ReadAllText(lastFailurePath));
+        var root = document.RootElement;
+        var signature = new FailureSignature(
+            root.GetProperty("ExactKey").GetString()!,
+            root.GetProperty("Shape").GetString()!,
+            root.GetProperty("Headline").GetString()!);
+
+        new FixMemory(MemoryPath(repo)).RecordLabel(signature, root.GetProperty("Filter").GetString()!, label, options.Get("note"));
+        Console.WriteLine($"Recorded: \"{signature.Headline}\" is a {options.Get("label")}. This exact failure will be classified that way from now on.");
+        return 0;
+    }
+
+    public static int ShowMemory(string repo)
+    {
+        var memory = new FixMemory(MemoryPath(repo));
+        if (memory.Entries.Count == 0)
+        {
+            Console.WriteLine("Nothing learned yet.");
+            return 0;
+        }
+
+        foreach (var entry in memory.Entries)
+        {
+            var detail = entry.Kind switch
+            {
+                MemoryKind.Fix => $"changed {string.Join(", ", entry.Files ?? [])}; replayed {entry.Uses}x, failed {entry.Failures}x",
+                MemoryKind.Label => $"labelled {entry.Label}",
+                _ => entry.Lesson,
+            };
+            Console.WriteLine($"{entry.CreatedUtc:yyyy-MM-dd}  {entry.Kind,-9}  {entry.Headline}\n            {detail}");
+        }
+        return 0;
+    }
+
+    private static async Task<FixRequest> BuildRequestAsync(CliOptions options, string repo, RepoConfig config, PlantedFailure? failure, string filter)
     {
         // What changed before the test broke: the planted patch, or the diff from --base to HEAD.
         string? changeDiff = null;
@@ -71,18 +136,12 @@ public static class Commands
             changeDiff);
     }
 
-    public static int ExitCode(FixOutcome outcome) => outcome switch
-    {
-        FixOutcome.Fixed => 0,
-        FixOutcome.NotFixed => 1,
-        FixOutcome.ProductDefect => 3,
-        _ => 2,
-    };
+    private static string MemoryPath(string repo) => Path.Combine(repo, ".fixharness", "memory.jsonl");
 
-    public static string OutDirectory(CliOptions options, string repo) =>
+    private static string OutDirectory(CliOptions options, string repo) =>
         Path.GetFullPath(options.Get("out") ?? Path.Combine(repo, "fixharness-out"));
 
-    public static PlantedFailure? FindFailure(CliOptions options, string repo) =>
+    private static PlantedFailure? FindFailure(CliOptions options, string repo) =>
         options.Get("failure") is { } id
             ? PlantedFailure.LoadAll(repo).FirstOrDefault(f => f.Id == id) ?? throw new ArgumentException($"Unknown failure id: {id}")
             : null;
@@ -96,6 +155,14 @@ public static class Commands
         var patchPath = Path.Combine(directory, "fix.patch");
         if (result.Patch is { Length: > 0 }) File.WriteAllText(patchPath, result.Patch);
         else if (File.Exists(patchPath)) File.Delete(patchPath); // never leave a stale patch next to a failed run
+
+        // Lets "fixharness feedback" label this failure afterwards.
+        if (result.Signature is { } signature)
+        {
+            File.WriteAllText(
+                Path.Combine(directory, "last-failure.json"),
+                ReportWriter.ToJson(new { result.Filter, signature.ExactKey, signature.Shape, signature.Headline }));
+        }
 
         Console.WriteLine($"\nOutput written to {directory}");
     }

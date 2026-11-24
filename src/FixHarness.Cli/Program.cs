@@ -13,16 +13,20 @@ try
 
     switch (args[0])
     {
-        case "list":
-            return Commands.List(repo);
         case "run":
             return await Commands.RunAsync(options, repo);
+        case "feedback":
+            return Commands.Feedback(options, repo);
+        case "memory":
+            return Commands.ShowMemory(repo);
+        case "list":
+            return Commands.List(repo);
         default:
             Console.Error.WriteLine($"Unknown command: {args[0]}\n\n{Commands.Help}");
             return 2;
     }
 }
-catch (Exception error) when (error is ArgumentException or FileNotFoundException or InvalidOperationException)
+catch (Exception error) when (error is ArgumentException or FileNotFoundException or InvalidOperationException or HttpRequestException)
 {
     Console.Error.WriteLine($"Error: {error.Message}");
     return 2;

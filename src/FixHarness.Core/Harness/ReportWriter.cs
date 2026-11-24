@@ -31,6 +31,9 @@ public static class ReportWriter
         write($"Triage:      {result.Triage.Kind} ({result.Triage.Source})");
         write($"Attempts:    {result.Attempts.Count}");
         write($"Model calls: {result.ModelCalls}");
+        write($"Time:        {result.Duration.TotalSeconds:0.0} s");
+        if (result.ReplayedFromMemory) write("Memory:      replayed a remembered fix");
+        else if (result.LessonsUsed.Count > 0) write($"Memory:      {result.LessonsUsed.Count} lesson(s) from similar failures were given to the model");
         write(result.Summary);
     }
 
@@ -45,6 +48,8 @@ public static class ReportWriter
         text.AppendLine($"- **Test:** `{result.Filter}`");
         text.AppendLine($"- **Triage:** {result.Triage.Kind}, decided by {result.Triage.Source}");
         text.AppendLine($"- **Model:** {result.Model} ({result.ModelCalls} call(s), {result.Attempts.Count} attempt(s))");
+        if (result.ReplayedFromMemory) text.AppendLine("- **Memory:** this exact failure was fixed before; that fix was replayed and verified again");
+        foreach (var lesson in result.LessonsUsed) text.AppendLine($"- **Lesson used:** {lesson}");
         text.AppendLine();
         text.AppendLine(result.Summary);
 

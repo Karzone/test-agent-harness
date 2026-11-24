@@ -6,5 +6,6 @@ var suite = new Suite();
 CoreTests.Register(suite);
 HarnessTests.Register(suite);
 TriageTests.Register(suite);
+MemoryTests.Register(suite);
 
 return await suite.RunAsync(args.FirstOrDefault());

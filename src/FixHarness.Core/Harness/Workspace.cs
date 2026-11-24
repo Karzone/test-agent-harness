@@ -4,10 +4,10 @@ using FixHarness.Testing;
 namespace FixHarness.Harness;
 
 /// <summary>
-/// The environment one attempt runs in: a throwaway git worktree of the
-/// repository. The harness creates it, binds the tools to it and removes it
-/// afterwards, whatever happened. The agent never touches your checkout, and a
-/// failed attempt leaves nothing behind.
+/// The environment a run happens in: a throwaway git worktree of the
+/// repository. The harness creates it, binds the tools to it, resets it between
+/// attempts and removes it afterwards, whatever happened. The agent never
+/// touches your checkout, and a failed attempt leaves nothing behind.
 /// </summary>
 public sealed class Workspace : IAsyncDisposable
 {
@@ -51,6 +51,32 @@ public sealed class Workspace : IAsyncDisposable
         {
             await workspace.DisposeAsync();
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Puts the workspace back to the original failing state between attempts.
+    /// Build output (bin/obj, ignored by git) is kept on purpose, so later
+    /// attempts build incrementally instead of from cold.
+    /// </summary>
+    public async Task ResetAsync()
+    {
+        await Git(Path, "reset", "--quiet", "--hard", "HEAD");
+        await Git(Path, "clean", "--quiet", "-fd");
+    }
+
+    /// <summary>Applies a patch (for example a remembered fix). Returns false if it does not apply cleanly.</summary>
+    public async Task<bool> TryApplyPatchAsync(string patchText)
+    {
+        var file = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fixharness-" + Guid.NewGuid().ToString("N")[..10] + ".patch");
+        await File.WriteAllTextAsync(file, patchText);
+        try
+        {
+            return (await ProcessRunner.RunAsync("git", ["apply", "--whitespace=nowarn", file], Path, GitTimeout)).Succeeded;
+        }
+        finally
+        {
+            File.Delete(file);
         }
     }
 
