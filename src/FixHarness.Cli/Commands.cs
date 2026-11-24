@@ -1,4 +1,5 @@
 using System.Text.Json;
+using FixHarness.Eval;
 using FixHarness.Harness;
 using FixHarness.Memory;
 using FixHarness.Testing;
@@ -27,6 +28,9 @@ public static class Commands
         fixharness memory [--repo <path>]
             Show what the harness has learned in this repository.
 
+        fixharness eval [--repo <path>] [--model <name>] [--with-memory]
+            Run every planted failure and score the results against the known answers.
+
         fixharness list [--repo <path>]
             List the planted failures in failures/manifest.json.
 
@@ -34,6 +38,7 @@ public static class Commands
         (any OpenAI-compatible endpoint: OpenAI, Azure OpenAI, OpenRouter).
 
         Exit codes for run: 0 fixed, 1 not fixed, 3 product defect, 2 nothing to do or bad usage.
+        Exit codes for eval: 0 no harmful result, 1 a false fix or a wrongly blocked test issue.
         """;
 
     public static int List(string repo)
@@ -115,6 +120,40 @@ public static class Commands
             Console.WriteLine($"{entry.CreatedUtc:yyyy-MM-dd}  {entry.Kind,-9}  {entry.Headline}\n            {detail}");
         }
         return 0;
+    }
+
+    public static async Task<int> EvalAsync(CliOptions options, string repo)
+    {
+        var config = RepoConfig.Load(repo);
+        var runner = new DotnetTestRunner(config.TestProject);
+        var withMemory = options.Get("with-memory") is not null;
+
+        var cases = new List<EvalCase>();
+        foreach (var failure in PlantedFailure.LoadAll(repo))
+        {
+            var expected = failure.Kind == "product-defect" ? FailureKind.ProductDefect : FailureKind.TestIssue;
+            cases.Add(new EvalCase(failure.Id, expected, await BuildRequestAsync(options, repo, config, failure, failure.Filter)));
+        }
+
+        var modelName = options.Get("model") ?? Environment.GetEnvironmentVariable("FIXHARNESS_MODEL") ?? "(unset)";
+        var summary = await EvalRunner.RunAsync(
+            modelName,
+            cases,
+            // A fresh model client per case; memory is off by default so runs are comparable.
+            evalCase => new FixHarnessRunner(ModelFactory.Create(options.Get("model"), repo, evalCase.Id), runner, Console.WriteLine)
+            {
+                Memory = withMemory ? new FixMemory(MemoryPath(repo)) : null,
+            },
+            Console.WriteLine);
+
+        var markdown = EvalRunner.ToMarkdown(summary);
+        Console.WriteLine("\n" + markdown);
+
+        var directory = OutDirectory(options, repo);
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(Path.Combine(directory, "eval.md"), markdown);
+        File.WriteAllText(Path.Combine(directory, "eval.json"), ReportWriter.ToJson(summary));
+        return summary.HasHarmfulResult ? 1 : 0;
     }
 
     private static async Task<FixRequest> BuildRequestAsync(CliOptions options, string repo, RepoConfig config, PlantedFailure? failure, string filter)

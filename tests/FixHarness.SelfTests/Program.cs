@@ -7,5 +7,6 @@ CoreTests.Register(suite);
 HarnessTests.Register(suite);
 TriageTests.Register(suite);
 MemoryTests.Register(suite);
+EvalTests.Register(suite);
 
 return await suite.RunAsync(args.FirstOrDefault());

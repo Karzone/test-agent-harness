@@ -19,6 +19,8 @@ try
             return Commands.Feedback(options, repo);
         case "memory":
             return Commands.ShowMemory(repo);
+        case "eval":
+            return await Commands.EvalAsync(options, repo);
         case "list":
             return Commands.List(repo);
         default:
