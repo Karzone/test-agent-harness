@@ -1,0 +1,5 @@
+{
+  "testProject": "sample/TinyShop.Tests",
+  "testRoots": ["sample/TinyShop.Tests"],
+  "neighbourFilter": "FullyQualifiedName~TinyShop.Tests"
+}
