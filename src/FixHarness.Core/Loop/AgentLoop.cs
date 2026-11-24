@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using FixHarness.Context;
+using FixHarness.Guardrails;
 using FixHarness.Model;
 using FixHarness.Tools;
 
@@ -7,11 +10,12 @@ namespace FixHarness.Loop;
 public sealed record ToolEvent(string Tool, string ArgumentsJson, string Result);
 
 /// <summary>One trip round the loop: the model either called tools or gave its answer.</summary>
-public sealed record LoopIteration(int Index, bool Answered, IReadOnlyList<ToolEvent> ToolEvents, int ContextSize);
+public sealed record LoopIteration(int Index, bool Answered, IReadOnlyList<ToolEvent> ToolEvents, int ContextSize, bool ContextTrimmed);
 
 public enum StoppedBy
 {
     Model,
+    Guardrail,
 }
 
 public sealed record LoopResult(string Answer, IReadOnlyList<LoopIteration> Trace, StoppedBy StoppedBy)
@@ -22,30 +26,42 @@ public sealed record LoopResult(string Answer, IReadOnlyList<LoopIteration> Trac
 
 /// <summary>
 /// The agent loop: ask the model, run the tools it asks for, give it the
-/// results, repeat until it answers in plain text.
+/// results, repeat until it answers in plain text or a guardrail stops it.
 ///
-/// This is the whole "agent". Note what it does not have: nothing stops it
-/// looping forever, nothing limits what it edits, and nothing checks whether
-/// its final answer is true.
+/// Before every model call the loop trims the context and checks the
+/// guardrails. It still does not check whether the final answer is true;
+/// that is the verifier's job.
 /// </summary>
 public static class AgentLoop
 {
+    private const int MaxContextMessages = 30;
     private const int MaxToolResultChars = 6_000;
 
     public static async Task<LoopResult> RunAsync(
         IModelClient model,
         List<ChatMessage> messages,
         ToolRegistry tools,
+        LoopGuardrail guardrail,
         Action<string>? log = null,
         CancellationToken cancellationToken = default)
     {
         var trace = new List<LoopIteration>();
+        var allEvents = new List<ToolEvent>();
+        var clock = Stopwatch.StartNew();
 
         while (true)
         {
             var index = trace.Count + 1;
-            var contextSize = messages.Count;
 
+            var trimmed = ContextTrimmer.Trim(messages, MaxContextMessages);
+
+            if (guardrail(new LoopState(trace.Count, messages, clock.Elapsed, allEvents)) is { } reason)
+            {
+                log?.Invoke($"[iter {index}] stopped: {reason}");
+                return new LoopResult(reason, trace, StoppedBy.Guardrail);
+            }
+
+            var contextSize = messages.Count;
             var response = await model.CompleteAsync(messages, tools.Definitions, cancellationToken);
             messages.Add(ChatMessage.Assistant(response.Content, response.ToolCalls));
 
@@ -53,7 +69,7 @@ public static class AgentLoop
             if (response.ToolCalls.Count == 0)
             {
                 log?.Invoke($"[iter {index}] answered");
-                trace.Add(new LoopIteration(index, Answered: true, [], contextSize));
+                trace.Add(new LoopIteration(index, Answered: true, [], contextSize, trimmed));
                 return new LoopResult(response.Content ?? "(no answer)", trace, StoppedBy.Model);
             }
 
@@ -66,7 +82,8 @@ public static class AgentLoop
                 messages.Add(ChatMessage.ToolResult(call.Id, result));
             }
 
-            trace.Add(new LoopIteration(index, Answered: false, events, contextSize));
+            allEvents.AddRange(events);
+            trace.Add(new LoopIteration(index, Answered: false, events, contextSize, trimmed));
         }
     }
 

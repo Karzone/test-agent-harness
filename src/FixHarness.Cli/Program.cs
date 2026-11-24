@@ -1,11 +1,13 @@
 using FixHarness.Cli;
 using FixHarness.Context;
+using FixHarness.Guardrails;
 using FixHarness.Loop;
 using FixHarness.Testing;
 using FixHarness.Tools;
 
-// Step 2: the bare agent loop. No guardrails, no isolation, no verification.
-// It edits the checkout you point it at, and it believes whatever the model says.
+// Step 3: the loop now has guardrails. It cannot run forever, and it cannot
+// edit product code, delete assertions, skip tests or add sleeps.
+// Still missing: isolation (it edits your checkout) and verification.
 
 if (args.Length == 0 || args[0] is "help" or "--help" or "-h")
 {
@@ -57,9 +59,10 @@ Console.WriteLine($"Model: {model.Name}\nTest:  {filter}\n\nRunning the test onc
 var baseline = await runner.RunAsync(repo, filter);
 Console.WriteLine(baseline.Describe() + "\n");
 
-var tools = WorkspaceTools.Create(repo, runner, filter);
+var policy = new PatchPolicy(new PatchPolicyOptions(config.TestRoots));
+var tools = WorkspaceTools.Create(repo, runner, filter, policy);
 var messages = ContextBuilder.Create(filter, baseline.Describe(), failure?.PrNote);
-var result = await AgentLoop.RunAsync(model, messages, tools, Console.WriteLine);
+var result = await AgentLoop.RunAsync(model, messages, tools, LoopGuardrails.Default, Console.WriteLine);
 
 Console.WriteLine($"\nAnswer: {result.Answer}");
 Console.WriteLine($"Stopped by: {result.StoppedBy} after {result.Iterations} iteration(s)");

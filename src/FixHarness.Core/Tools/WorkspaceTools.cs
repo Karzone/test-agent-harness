@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using FixHarness.Guardrails;
 using FixHarness.Model;
 using FixHarness.Testing;
 
@@ -19,9 +20,17 @@ public static class WorkspaceTools
     private static readonly string[] SkippedDirectories = ["bin", "obj", ".git", "node_modules", "TestResults", ".vs"];
     private static readonly string[] TextExtensions = [".cs", ".feature", ".html", ".js", ".ts", ".json", ".css", ".md", ".csproj", ".config", ".xml", ".txt"];
 
-    public static ToolRegistry Create(string workingDirectory, ITestRunner testRunner, string testFilter)
+    /// <param name="policy">
+    /// When given, every edit is checked against the policy before it is written.
+    /// A rejected edit is not applied, and the model is told why.
+    /// </param>
+    public static ToolRegistry Create(string workingDirectory, ITestRunner testRunner, string testFilter, PatchPolicy? policy = null)
     {
         var root = Path.GetFullPath(workingDirectory);
+
+        // Content of each file before the agent first touched it, so the policy
+        // judges the whole fix so far and not just the latest edit.
+        var originals = new Dictionary<string, string>();
 
         return new ToolRegistry(
         [
@@ -61,6 +70,8 @@ public static class WorkspaceTools
                     """{"type":"object","properties":{"path":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"}},"required":["path","old_text","new_text"]}"""),
                 (arguments, _) => Task.FromResult(ReplaceInFile(
                     root,
+                    policy,
+                    originals,
                     RequiredString(arguments, "path"),
                     RequiredString(arguments, "old_text"),
                     RequiredString(arguments, "new_text")))),
@@ -104,7 +115,13 @@ public static class WorkspaceTools
         return hits.Count == 0 ? $"No matches for \"{text}\"." : string.Join('\n', hits);
     }
 
-    private static string ReplaceInFile(string root, string path, string oldText, string newText)
+    private static string ReplaceInFile(
+        string root,
+        PatchPolicy? policy,
+        Dictionary<string, string> originals,
+        string path,
+        string oldText,
+        string newText)
     {
         var full = Resolve(root, path);
         if (!File.Exists(full)) return $"File not found: {path}";
@@ -125,8 +142,40 @@ public static class WorkspaceTools
         var index = before.IndexOf(find, StringComparison.Ordinal);
         var after = string.Concat(before.AsSpan(0, index), replacement, before.AsSpan(index + find.Length));
 
+        var relative = Relative(root, full);
+        if (policy is not null)
+        {
+            var violations = policy.Check(ProposedChanges(root, originals, relative, before, after));
+            if (violations.Count > 0)
+            {
+                return "Rejected by guardrail, nothing was changed:\n- " + string.Join("\n- ", violations);
+            }
+        }
+
+        originals.TryAdd(relative, before);
         File.WriteAllText(full, usesCrLf ? after.Replace("\n", "\r\n") : after, new UTF8Encoding(false));
-        return $"Edited {Relative(root, full)}.";
+        return $"Edited {relative}.";
+    }
+
+    /// <summary>Every file changed so far, plus the edit being proposed.</summary>
+    private static Dictionary<string, FileChange> ProposedChanges(
+        string root,
+        Dictionary<string, string> originals,
+        string editedPath,
+        string editedBefore,
+        string editedAfter)
+    {
+        var changes = new Dictionary<string, FileChange>();
+        foreach (var (path, original) in originals)
+        {
+            if (path == editedPath) continue;
+            var current = File.ReadAllText(Path.Combine(root, path)).Replace("\r\n", "\n");
+            if (current != original) changes[path] = new FileChange(original, current);
+        }
+
+        var editedOriginal = originals.GetValueOrDefault(editedPath, editedBefore);
+        if (editedAfter != editedOriginal) changes[editedPath] = new FileChange(editedOriginal, editedAfter);
+        return changes;
     }
 
     /// <summary>Turns a relative path into a full one and refuses anything outside the workspace.</summary>
