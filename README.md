@@ -1,6 +1,6 @@
-# FixHarness
+# test-agent-harness
 
-An agent harness for failing automation tests, built one step at a time in C#.
+An agent harness for testing work, built one step at a time in C#. Its first mode, `tah fix`, repairs failing automation tests.
 
 Give it a failing test. It answers with one of two things:
 
@@ -27,7 +27,7 @@ In the self-tests a simulator stands in for `dotnet test`, and scripted "models"
 
 ```sh
 # 1. The harness's own tests. No packages, no browser, no API key.
-dotnet run --project tests/FixHarness.SelfTests
+dotnet run --project tests/TestAgentHarness.SelfTests
 
 # 2. The sample suite. Needs NuGet and a browser.
 dotnet build sample/TinyShop.Tests
@@ -36,24 +36,24 @@ dotnet test sample/TinyShop.Tests          # expect 4 passing scenarios
 
 # 3. The whole harness against real "dotnet test", still with no API key:
 #    scripted models replay known tool calls for each planted failure.
-dotnet run --project src/FixHarness.Cli -- eval --model scripted:failures/scripts
+dotnet run --project src/TestAgentHarness.Cli -- eval --model scripted:failures/scripts
 
 # 4. One failure, watching a badly behaved "model" get blocked and corrected.
-dotnet run --project src/FixHarness.Cli -- run --failure 01-renamed-locator --model scripted:failures/scripts --no-memory
+dotnet run --project src/TestAgentHarness.Cli -- fix --failure 01-renamed-locator --model scripted:failures/scripts --no-memory
 
 # 5. A real model.
-export FIXHARNESS_API_KEY=...
-export FIXHARNESS_MODEL=...                 # e.g. an OpenRouter model id or an Azure deployment name
-export FIXHARNESS_BASE_URL=...              # optional; defaults to https://openrouter.ai/api/v1
-dotnet run --project src/FixHarness.Cli -- run --failure 03-async-total
-dotnet run --project src/FixHarness.Cli -- eval
+export TAH_API_KEY=...
+export TAH_MODEL=...                 # e.g. an OpenRouter model id or an Azure deployment name
+export TAH_BASE_URL=...              # optional; defaults to https://openrouter.ai/api/v1
+dotnet run --project src/TestAgentHarness.Cli -- fix --failure 03-async-total
+dotnet run --project src/TestAgentHarness.Cli -- eval
 ```
 
 If step 3 reports `NoTestsMatched`, the test names differ from the filters in `failures/manifest.json`. `dotnet test sample/TinyShop.Tests --list-tests` shows the real names.
 
 ## One tag per step
 
-Each step is a tagged commit, so `git diff step-2 step-3` shows exactly what a layer adds.
+Each step is a tagged commit, so `git diff step-2 step-3` shows exactly what a layer adds. The step tags predate the rename, so at those commits the projects and the command are still called FixHarness and `fixharness run`.
 
 | Tag | Adds | What it fixes about the step before |
 |---|---|---|
@@ -120,7 +120,7 @@ Rules run in order and the first verdict wins.
 | `BehaviourChangedByRefactor` | The change says "no behaviour change", product code changed, an assertion sees a new value | Product defect |
 | `LocatorTimeoutAfterMarkupChange` | An element was not found and the change touched markup | Test issue |
 
-A rule is one function; add your own through `FixHarnessRunner.TriageRules`.
+A rule is one function; add your own through `FixRunner.TriageRules`.
 
 When no rule matches, the model investigates and must end with `VERDICT: TEST_ISSUE` or `VERDICT: PRODUCT_DEFECT`. Its verdict is handled according to how much evidence there is:
 
@@ -131,11 +131,11 @@ When no rule matches, the model investigates and must end with `VERDICT: TEST_IS
 
 ### Learning loop (`Memory/`)
 
-What is learned lives in `.fixharness/memory.jsonl`: plain JSON lines you can read, review in a pull request and edit.
+What is learned lives in `.testagentharness/memory.jsonl`: plain JSON lines you can read, review in a pull request and edit.
 
 - **Replay.** A failure with the same fingerprint as one fixed before gets that patch applied and fully re-verified. If it passes, the run ends with no model call.
 - **Lessons.** A similar failure (same shape, different test or selector) gets the earlier fix, or an earlier rejected attempt, as a hint in the model's context.
-- **Labels.** `fixharness feedback --label test-issue` after a wrong classification. That exact failure is then classified your way every time, above the rules and the model.
+- **Labels.** `tah feedback --label test-issue` after a wrong classification. That exact failure is then classified your way every time, above the rules and the model.
 
 Three rules keep it honest:
 
@@ -147,7 +147,7 @@ Fingerprints are plain text processing (timings, line numbers, ids and paths str
 
 ### Eval (`Eval/`)
 
-`fixharness eval` runs every planted failure and scores it against the known answer.
+`tah eval` runs every planted failure and scores it against the known answer.
 
 | Verdict | Meaning |
 |---|---|
@@ -163,7 +163,7 @@ The five planted failures are a start, not a benchmark. The eval gets useful whe
 
 ## Using it on your own repository
 
-1. Add `fixharness.json` at the repository root:
+1. Add `testagentharness.json` at the repository root:
 
    ```json
    {
@@ -180,12 +180,12 @@ The five planted failures are a start, not a benchmark. The eval gets useful whe
 3. Run it on a failing test:
 
    ```sh
-   fixharness run --filter "FullyQualifiedName~Basket.TotalAddsUp" --base origin/main --note "PR description here"
+   tah fix --filter "FullyQualifiedName~Basket.TotalAddsUp" --base origin/main --note "PR description here"
    ```
 
    `--base` gives the harness the diff that preceded the failure. It is the best evidence triage has and the most useful thing the model is shown.
 
-Outputs go to `fixharness-out/`: `report.md` (ready for a pull-request comment or a defect ticket), `trace.json` (every tool call) and, only for a verified fix, `fix.patch`.
+Outputs go to `tah-out/`: `report.md` (ready for a pull-request comment or a defect ticket), `trace.json` (every tool call) and, only for a verified fix, `fix.patch`.
 
 The harness works from the commit at `HEAD`. Uncommitted changes in your checkout are not seen.
 
@@ -200,7 +200,7 @@ The harness works from the commit at `HEAD`. Uncommitted changes in your checkou
 ## Layout
 
 ```
-src/FixHarness.Core/      the harness (no package references)
+src/TestAgentHarness.Core/      the harness (no package references)
   Model/                  IModelClient, OpenAI-compatible client, scripted client
   Tools/                  the five tools
   Context/                what the model is shown; trimming
@@ -211,8 +211,8 @@ src/FixHarness.Core/      the harness (no package references)
   Memory/                 fingerprints and the learning store
   Eval/                   the eval runner
   Testing/                dotnet test runner, TRX parser
-src/FixHarness.Cli/       the fixharness command
-tests/FixHarness.SelfTests/   tests for the harness (plain console app)
+src/TestAgentHarness.Cli/       the tah command
+tests/TestAgentHarness.SelfTests/   tests for the harness (plain console app)
 sample/TinyShop.Web/      the "product": one static page
 sample/TinyShop.Tests/    Reqnroll + Playwright suite
 failures/                 planted failures, their answers, scripted models
