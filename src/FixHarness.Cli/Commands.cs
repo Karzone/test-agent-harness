@@ -10,17 +10,19 @@ public static class Commands
             List the planted failures in failures/manifest.json.
 
         fixharness run [--repo <path>] --failure <id>
-        fixharness run [--repo <path>] --filter <dotnet test filter>
-            Try to fix one failing test. Options:
-              --model <name>      model name, or scripted:<script.json> to replay a script
+        fixharness run [--repo <path>] --filter <dotnet test filter> [--base <git ref>] [--note <text>]
+            Triage one failing test, then fix it or report a product defect. Options:
+              --base <ref>        the change that preceded the failure is the diff from <ref> to HEAD
+              --note <text>       pull-request description, used as evidence
+              --model <name>      model name, or scripted:<file-or-directory> to replay a script
               --attempts <n>      attempts before giving up (default 3)
               --verify-runs <n>   times the fixed test must pass (default 3)
-              --out <dir>         where to write fix.patch, report.md, trace.json
+              --out <dir>         where to write report.md, trace.json and fix.patch
 
         Model: set FIXHARNESS_API_KEY, FIXHARNESS_MODEL and optionally FIXHARNESS_BASE_URL
         (any OpenAI-compatible endpoint: OpenAI, Azure OpenAI, OpenRouter).
 
-        Exit codes: 0 fixed, 1 not fixed, 2 nothing to do or bad usage.
+        Exit codes: 0 fixed, 1 not fixed, 3 product defect, 2 nothing to do or bad usage.
         """;
 
     public static int List(string repo)
@@ -38,30 +40,47 @@ public static class Commands
         var failure = FindFailure(options, repo);
         var filter = options.Get("filter") ?? failure?.Filter ?? throw new ArgumentException("Pass --failure or --filter.");
 
-        var model = ModelFactory.Create(options.Get("model"), repo);
+        var model = ModelFactory.Create(options.Get("model"), repo, failure?.Id);
         var harness = new FixHarnessRunner(model, new DotnetTestRunner(config.TestProject), Console.WriteLine);
 
         Console.WriteLine($"Model: {model.Name}\nTest:  {filter}\n");
-        var result = await harness.RunAsync(new FixRequest(
+        var result = await harness.RunAsync(await BuildRequestAsync(options, repo, config, failure, filter));
+
+        ReportWriter.Print(result, Console.WriteLine);
+        WriteOutputs(result, OutDirectory(options, repo));
+
+        return ExitCode(result.Outcome);
+    }
+
+    public static async Task<FixRequest> BuildRequestAsync(CliOptions options, string repo, RepoConfig config, PlantedFailure? failure, string filter)
+    {
+        // What changed before the test broke: the planted patch, or the diff from --base to HEAD.
+        string? changeDiff = null;
+        if (failure is not null) changeDiff = await File.ReadAllTextAsync(Path.Combine(repo, failure.Patch));
+        else if (options.Get("base") is { } baseRef) changeDiff = await GitChanges.DiffSinceAsync(repo, baseRef);
+
+        return new FixRequest(
             repo,
             filter,
             config.TestRoots,
             failure?.Patch,
-            failure?.PrNote,
+            options.Get("note") ?? failure?.PrNote,
             config.NeighbourFilter,
             options.GetInt("attempts", 3),
-            options.GetInt("verify-runs", 3)));
-
-        ReportWriter.Print(result, Console.WriteLine);
-        WriteOutputs(result, Path.GetFullPath(options.Get("out") ?? Path.Combine(repo, "fixharness-out")));
-
-        return result.Outcome switch
-        {
-            FixOutcome.Fixed => 0,
-            FixOutcome.NotFixed => 1,
-            _ => 2,
-        };
+            options.GetInt("verify-runs", 3),
+            changeDiff);
     }
+
+    public static int ExitCode(FixOutcome outcome) => outcome switch
+    {
+        FixOutcome.Fixed => 0,
+        FixOutcome.NotFixed => 1,
+        FixOutcome.ProductDefect => 3,
+        _ => 2,
+    };
+
+    public static string OutDirectory(CliOptions options, string repo) =>
+        Path.GetFullPath(options.Get("out") ?? Path.Combine(repo, "fixharness-out"));
 
     public static PlantedFailure? FindFailure(CliOptions options, string repo) =>
         options.Get("failure") is { } id

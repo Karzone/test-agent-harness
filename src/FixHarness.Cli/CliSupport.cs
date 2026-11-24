@@ -74,15 +74,23 @@ public sealed record PlantedFailure(string Id, string Kind, string Title, string
 
 public static class ModelFactory
 {
-    /// <summary>"scripted:path/to/script.json" replays a script; anything else is a model name for the API.</summary>
-    public static IModelClient Create(string? modelOption, string repoPath)
+    /// <summary>
+    /// "scripted:path" replays a script and needs no API key; anything else is a
+    /// model name for the API. The path may be a script file, or a directory
+    /// holding one script per planted failure (&lt;failure id&gt;.json).
+    /// </summary>
+    public static IModelClient Create(string? modelOption, string repoPath, string? failureId = null)
     {
         const string scriptedPrefix = "scripted:";
-        if (modelOption is not null && modelOption.StartsWith(scriptedPrefix, StringComparison.OrdinalIgnoreCase))
+        if (modelOption is null || !modelOption.StartsWith(scriptedPrefix, StringComparison.OrdinalIgnoreCase))
         {
-            return ScriptedModelClient.FromFile(Path.GetFullPath(Path.Combine(repoPath, modelOption[scriptedPrefix.Length..])));
+            return OpenAiCompatibleClient.FromEnvironment(modelOption);
         }
 
-        return OpenAiCompatibleClient.FromEnvironment(modelOption);
+        var path = Path.GetFullPath(Path.Combine(repoPath, modelOption[scriptedPrefix.Length..]));
+        if (Directory.Exists(path)) path = Path.Combine(path, (failureId ?? "default") + ".json");
+
+        // No script for this failure: a "model" that answers immediately and changes nothing.
+        return File.Exists(path) ? ScriptedModelClient.FromFile(path) : new ScriptedModelClient([]);
     }
 }

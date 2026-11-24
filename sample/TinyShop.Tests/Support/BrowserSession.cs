@@ -17,4 +17,12 @@ public sealed class BrowserSession
     }
 
     public bool IsOpen => _page is not null;
+
+    /// <summary>
+    /// Uncaught script errors and console errors raised by the page. The hooks
+    /// print them when the scenario ends, so they land in the test output where
+    /// triage can see them. Without this, a crashed click handler looks exactly
+    /// like a stale locator: both end in a timeout.
+    /// </summary>
+    public List<string> BrowserErrors { get; } = [];
 }

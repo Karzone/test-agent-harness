@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using FixHarness.Loop;
 
 namespace FixHarness.Harness;
 
@@ -13,7 +14,7 @@ public static class ReportWriter
         Converters = { new JsonStringEnumConverter() },
     };
 
-    public static string ToJson(FixResult result) => JsonSerializer.Serialize(result, JsonOptions);
+    public static string ToJson(object result) => JsonSerializer.Serialize(result, JsonOptions);
 
     public static void Print(FixResult result, Action<string> write)
     {
@@ -21,29 +22,47 @@ public static class ReportWriter
         {
             write($"\n--- Attempt {attempt.Number}: agent trace ---\n");
             TracePrinter.Print(attempt.Loop, write);
-            write($"Agent said: {Loop.AgentLoop.OneLine(attempt.Loop.Answer, 200)}");
+            write($"Agent said: {AgentLoop.OneLine(attempt.Loop.Answer, 200)}");
             write($"Verify:     {(attempt.Verification.Passed ? "PASS" : "FAIL")} - {attempt.Verification.Reason}");
         }
 
         write("\n--- Result ---\n");
-        write($"Outcome:  {result.Outcome}");
-        write($"Attempts: {result.Attempts.Count}");
+        write($"Outcome:     {result.Outcome}");
+        write($"Triage:      {result.Triage.Kind} ({result.Triage.Source})");
+        write($"Attempts:    {result.Attempts.Count}");
+        write($"Model calls: {result.ModelCalls}");
         write(result.Summary);
     }
 
-    /// <summary>A short report suitable for a pull-request comment.</summary>
+    /// <summary>A short report suitable for a pull-request comment or a defect ticket.</summary>
     public static string ToMarkdown(FixResult result)
     {
         var text = new StringBuilder();
-        text.AppendLine($"## FixHarness: {result.Outcome}");
+        text.AppendLine(result.Outcome == FixOutcome.ProductDefect
+            ? "## FixHarness: product defect (test not changed)"
+            : $"## FixHarness: {result.Outcome}");
         text.AppendLine();
         text.AppendLine($"- **Test:** `{result.Filter}`");
-        text.AppendLine($"- **Model:** {result.Model}");
-        text.AppendLine($"- **Attempts:** {result.Attempts.Count}");
+        text.AppendLine($"- **Triage:** {result.Triage.Kind}, decided by {result.Triage.Source}");
+        text.AppendLine($"- **Model:** {result.Model} ({result.ModelCalls} call(s), {result.Attempts.Count} attempt(s))");
         text.AppendLine();
         text.AppendLine(result.Summary);
+
+        if (result.Outcome == FixOutcome.ProductDefect)
+        {
+            text.AppendLine();
+            text.AppendLine("### Why this is a product defect");
+            text.AppendLine();
+            text.AppendLine(result.Triage.Reason);
+            if (result.Triage.Source == "model")
+            {
+                text.AppendLine();
+                text.AppendLine("> This verdict is a model's judgement, not a rule. Confirm it before raising the defect. If it is wrong, record that with `fixharness feedback --label test-issue` so the same failure is handled correctly next time.");
+            }
+        }
+
         text.AppendLine();
-        text.AppendLine("### Original failure");
+        text.AppendLine("### Failure");
         text.AppendLine();
         text.AppendLine("```");
         text.AppendLine(result.Baseline.Describe(1500));

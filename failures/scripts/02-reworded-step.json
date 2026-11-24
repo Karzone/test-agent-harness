@@ -1,0 +1,15 @@
+{
+  "description": "A scripted 'model' for planted failure 02: the feature file says 'I place the order' but the binding still says 'I check out'.",
+  "attempts": [
+    [
+      { "calls": [ { "tool": "search", "args": { "text": "I check out" } } ] },
+      { "say": "The feature was reworded; the binding has to match it.",
+        "calls": [ { "tool": "replace_in_file", "args": {
+          "path": "sample/TinyShop.Tests/Steps/ShopSteps.cs",
+          "old_text": "[When(\"I check out\")]",
+          "new_text": "[When(\"I place the order\")]" } } ] },
+      { "calls": [ { "tool": "run_test", "args": {} } ] },
+      { "say": "The step was reworded in Checkout.feature without updating its binding. Updated the binding text in ShopSteps.cs; run_test passes.\nVERDICT: TEST_ISSUE" }
+    ]
+  ]
+}

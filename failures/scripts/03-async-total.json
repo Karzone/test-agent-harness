@@ -1,0 +1,20 @@
+{
+  "description": "A scripted 'model' for planted failure 03. It first reaches for a sleep, which the guardrail rejects, then uses the rejection as feedback and switches to a retrying assertion in the same attempt.",
+  "attempts": [
+    [
+      { "calls": [ { "tool": "read_file", "args": { "path": "sample/TinyShop.Tests/Steps/ShopSteps.cs" } } ] },
+      { "say": "The total arrives late now. Wait for it.",
+        "calls": [ { "tool": "replace_in_file", "args": {
+          "path": "sample/TinyShop.Tests/Steps/ShopSteps.cs",
+          "old_text": "        var actual = await Shop.BasketTotal.InnerTextAsync();",
+          "new_text": "        Thread.Sleep(1000);\n        var actual = await Shop.BasketTotal.InnerTextAsync();" } } ] },
+      { "say": "A fixed wait is not allowed. Use an assertion that retries until the total settles.",
+        "calls": [ { "tool": "replace_in_file", "args": {
+          "path": "sample/TinyShop.Tests/Steps/ShopSteps.cs",
+          "old_text": "        // Reads the text once, straight away. Fine while the total updates\n        // synchronously; planted failure 03 shows what happens when it doesn't.\n        var actual = await Shop.BasketTotal.InnerTextAsync();\n        Assert.That(actual, Is.EqualTo(expected));",
+          "new_text": "        // Retries until the total settles, so it works whether the app updates\n        // the total straight away or a moment later.\n        await Expect(Shop.BasketTotal).ToHaveTextAsync(expected);" } } ] },
+      { "calls": [ { "tool": "run_test", "args": {} } ] },
+      { "say": "The product now renders the total a moment after the click (an intended change). The step read the text once, too early. Replaced the one-shot read with a retrying Playwright assertion; run_test passes.\nVERDICT: TEST_ISSUE" }
+    ]
+  ]
+}

@@ -5,7 +5,15 @@ namespace FixHarness.Guardrails;
 /// <summary>A file's content before the agent touched it and as it would be after the edit.</summary>
 public sealed record FileChange(string Original, string Current);
 
-public sealed record PatchPolicyOptions(IReadOnlyList<string> AllowedRoots, int MaxFilesChanged = 3, int MaxChangedLines = 40);
+/// <param name="AllowExpectationChanges">
+/// Off by default: a fix may not rewrite what a Then step expects. Changing the
+/// expected value is the easiest way to "fix" a real product defect.
+/// </param>
+public sealed record PatchPolicyOptions(
+    IReadOnlyList<string> AllowedRoots,
+    int MaxFilesChanged = 3,
+    int MaxChangedLines = 40,
+    bool AllowExpectationChanges = false);
 
 /// <summary>
 /// The rules a fix must obey. A test can always be made green by cheating:
@@ -49,6 +57,10 @@ public sealed partial class PatchPolicy(PatchPolicyOptions options)
                 Decreased(violations, path, GherkinScenarios, before, after, "removes a scenario");
                 Decreased(violations, path, GherkinSteps, before, after, "removes a step");
                 Decreased(violations, path, GherkinThen, before, after, "removes a Then step (an assertion)");
+                if (!options.AllowExpectationChanges && !ThenSteps(before).SequenceEqual(ThenSteps(after)))
+                {
+                    violations.Add($"{path}: the change rewrites the expected outcome in a Then step. What the product should do is not the harness's decision; if the expectation really is out of date, a person must change it.");
+                }
             }
             else
             {
@@ -109,6 +121,27 @@ public sealed partial class PatchPolicy(PatchPolicyOptions options)
     private static void Increased(List<string> violations, string path, Regex pattern, string before, string after, string what)
     {
         if (pattern.Matches(after).Count > pattern.Matches(before).Count) violations.Add($"{path}: the change {what}.");
+    }
+
+    /// <summary>The Then steps of a feature file, in order, including the And/But steps that follow them.</summary>
+    private static List<string> ThenSteps(string featureText)
+    {
+        var steps = new List<string>();
+        var inThen = false;
+        foreach (var raw in Lines(featureText))
+        {
+            var line = raw.Trim();
+            var keyword = line.Split(' ', 2)[0];
+            switch (keyword)
+            {
+                case "Then": inThen = true; break;
+                case "Given" or "When": inThen = false; continue;
+                case "And" or "But": break;
+                default: continue;
+            }
+            if (inThen) steps.Add(line);
+        }
+        return steps;
     }
 
     /// <summary>Commenting an assertion out must count as removing it.</summary>

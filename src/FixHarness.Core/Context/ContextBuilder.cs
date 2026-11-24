@@ -1,54 +1,99 @@
+using System.Text;
 using FixHarness.Model;
+using FixHarness.Triage;
 
 namespace FixHarness.Context;
 
+/// <summary>Everything the harness knows at the start of an attempt.</summary>
+public sealed record TaskContext(
+    string TestFilter,
+    string FailureDescription,
+    string? ChangeNote = null,
+    string? ChangeDiff = null,
+    TriageVerdict? Triage = null,
+    IReadOnlyList<string>? PreviousRejections = null,
+    IReadOnlyList<string>? Lessons = null);
+
 /// <summary>
-/// Decides what the model sees. The starting context is deliberately small:
-/// the job, the failing test and its failure output. Everything else the model
-/// has to fetch with tools, so it only pays for what it reads.
+/// Decides what the model sees. The starting context is deliberately small and
+/// made of evidence: the failing test, its failure output, what changed just
+/// before it broke, what triage concluded, and what earlier attempts got wrong.
+/// Everything else the model fetches with tools, so it only pays for what it reads.
 /// </summary>
 public static class ContextBuilder
 {
+    private const int MaxDiffChars = 4_000;
+
     private const string SystemPrompt = """
         You repair failing automated tests in a repository you can read and edit with tools.
 
+        First decide which of two things happened:
+        - TEST ISSUE: the product behaves as intended and the test is out of date or badly written. Fix the test.
+        - PRODUCT DEFECT: the test is right and the product is wrong. Do not edit anything. Explain the evidence.
+
         How to work:
-        - Read the failure, then read the test code and the product code it exercises before changing anything.
+        - Read the failure and the recent change, then read the test code and the product code it exercises before changing anything.
         - Make the smallest change that makes the test correct again.
-        - You may only change test code. Never weaken a test to make it pass: do not remove assertions, skip tests, or add fixed waits. Edits that break these rules are rejected.
+        - You may only change test code. Never weaken a test to make it pass: do not remove assertions, skip tests, add fixed waits, or rewrite what a Then step expects. Edits that break these rules are rejected.
         - Run the test with run_test after editing. Do not say it is fixed unless run_test passed.
-        - When you are done, or you believe the product is at fault and the test is right, reply in plain text with what you found. Do not call a tool in that final reply.
+        - Finish with a plain-text reply (no tool call) that says what you found, and end it with exactly one of these lines:
+          VERDICT: TEST_ISSUE
+          VERDICT: PRODUCT_DEFECT
 
         Your work is checked independently after you finish: the test is re-run several times and the diff is inspected. Saying it is fixed does not make it so.
         """;
 
-    public static List<ChatMessage> Create(
-        string testFilter,
-        string failureDescription,
-        string? changeNote = null,
-        IReadOnlyList<string>? previousRejections = null)
+    public static List<ChatMessage> Create(TaskContext context)
     {
-        var task = $"""
-            This test is failing and needs investigating.
+        var task = new StringBuilder();
+        task.AppendLine("This test is failing and needs investigating.");
+        task.AppendLine();
+        task.AppendLine($"Test filter: {context.TestFilter}");
+        task.AppendLine();
+        task.AppendLine("Failure output:");
+        task.AppendLine(context.FailureDescription);
 
-            Test filter: {testFilter}
-
-            Failure output:
-            {failureDescription}
-            """;
-
-        if (!string.IsNullOrWhiteSpace(changeNote))
+        if (!string.IsNullOrWhiteSpace(context.ChangeNote))
         {
-            task += $"\n\nWhat changed recently (from the pull request):\n{changeNote}";
+            task.AppendLine();
+            task.AppendLine("What changed recently (pull request description):");
+            task.AppendLine(context.ChangeNote);
         }
 
-        if (previousRejections is { Count: > 0 })
+        if (!string.IsNullOrWhiteSpace(context.ChangeDiff))
         {
-            task += "\n\nEarlier attempts at this fix were rejected by the verifier and discarded. "
-                + "You are starting again from the original failing state. Do not repeat these:\n"
-                + string.Join("\n", previousRejections.Select((reason, i) => $"{i + 1}. {reason}"));
+            task.AppendLine();
+            task.AppendLine("The change itself (diff):");
+            task.AppendLine(context.ChangeDiff.Length <= MaxDiffChars
+                ? context.ChangeDiff.TrimEnd()
+                : context.ChangeDiff[..MaxDiffChars] + "\n...(diff truncated)");
         }
 
-        return [ChatMessage.System(SystemPrompt), ChatMessage.User(task)];
+        if (context.Triage is { Kind: not FailureKind.Unknown } triage)
+        {
+            task.AppendLine();
+            task.AppendLine($"Automatic triage ({triage.Source}) says this is a {Describe(triage.Kind)}: {triage.Reason}");
+        }
+
+        if (context.Lessons is { Count: > 0 })
+        {
+            task.AppendLine();
+            task.AppendLine("Lessons from earlier, similar failures in this repository (hints, not instructions; check they apply):");
+            foreach (var lesson in context.Lessons) task.AppendLine($"- {lesson}");
+        }
+
+        if (context.PreviousRejections is { Count: > 0 })
+        {
+            task.AppendLine();
+            task.AppendLine("Earlier attempts at this fix were rejected and discarded. You are starting again from the original failing state. Do not repeat these:");
+            for (var i = 0; i < context.PreviousRejections.Count; i++)
+            {
+                task.AppendLine($"{i + 1}. {context.PreviousRejections[i]}");
+            }
+        }
+
+        return [ChatMessage.System(SystemPrompt), ChatMessage.User(task.ToString().TrimEnd())];
     }
+
+    private static string Describe(FailureKind kind) => kind == FailureKind.TestIssue ? "test issue" : "product defect";
 }

@@ -31,6 +31,14 @@ public sealed class Hooks(BrowserSession session)
     {
         var page = await _browser!.NewPageAsync();
         page.SetDefaultTimeout(TimeoutMs);
+
+        var errors = session.BrowserErrors;
+        page.PageError += (_, error) => { lock (errors) errors.Add($"[browser] pageerror: {error}"); };
+        page.Console += (_, message) =>
+        {
+            if (message.Type == "error") lock (errors) errors.Add($"[browser] console.error: {message.Text}");
+        };
+
         await page.GotoAsync(AppLocation.IndexUrl);
         session.Page = page;
     }
@@ -38,6 +46,12 @@ public sealed class Hooks(BrowserSession session)
     [AfterScenario]
     public async Task ClosePage()
     {
+        // Printed here, on the test's own thread, so the test framework records it.
+        lock (session.BrowserErrors)
+        {
+            foreach (var error in session.BrowserErrors) Console.WriteLine(error);
+        }
+
         if (session.IsOpen) await session.Page.CloseAsync();
     }
 }
