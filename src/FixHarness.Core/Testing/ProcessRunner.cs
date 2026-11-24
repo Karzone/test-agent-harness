@@ -3,7 +3,9 @@ using System.Text;
 
 namespace FixHarness.Testing;
 
-public sealed record ProcessResult(int ExitCode, string Output, bool TimedOut)
+/// <param name="StdOut">Standard output only, byte-for-byte (used for patches and file content).</param>
+/// <param name="Output">Standard output followed by standard error (used for messages).</param>
+public sealed record ProcessResult(int ExitCode, string StdOut, string Output, bool TimedOut)
 {
     public bool Succeeded => ExitCode == 0 && !TimedOut;
 }
@@ -23,23 +25,24 @@ public static class ProcessRunner
             WorkingDirectory = workingDirectory,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
             UseShellExecute = false,
             CreateNoWindow = true,
         };
         foreach (var argument in arguments) startInfo.ArgumentList.Add(argument);
 
-        var output = new StringBuilder();
         using var process = new Process { StartInfo = startInfo };
-        process.OutputDataReceived += (_, e) => { if (e.Data is not null) lock (output) output.AppendLine(e.Data); };
-        process.ErrorDataReceived += (_, e) => { if (e.Data is not null) lock (output) output.AppendLine(e.Data); };
-
         process.Start();
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
+
+        // Read both streams concurrently so a full pipe can never block the child.
+        var stdOut = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
+        var stdErr = process.StandardError.ReadToEndAsync(CancellationToken.None);
 
         using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutSource.CancelAfter(timeout);
 
+        var timedOut = false;
         try
         {
             await process.WaitForExitAsync(timeoutSource.Token);
@@ -48,10 +51,11 @@ public static class ProcessRunner
         {
             try { process.Kill(entireProcessTree: true); } catch { /* already gone */ }
             cancellationToken.ThrowIfCancellationRequested();
-            lock (output) return new ProcessResult(-1, output.ToString(), TimedOut: true);
+            timedOut = true;
         }
 
-        process.WaitForExit(); // flush the async output handlers
-        lock (output) return new ProcessResult(process.ExitCode, output.ToString(), TimedOut: false);
+        var output = await stdOut;
+        var error = await stdErr;
+        return new ProcessResult(timedOut ? -1 : process.ExitCode, output, output + error, timedOut);
     }
 }
