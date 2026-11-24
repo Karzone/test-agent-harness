@@ -51,11 +51,11 @@ dotnet run --project src/TestAgentHarness.Cli -- eval
 
 If step 3 reports `NoTestsMatched`, the test names differ from the filters in `failures/manifest.json`. `dotnet test sample/TinyShop.Tests --list-tests` shows the real names.
 
-## One tag per step
+## One branch per step
 
-Each step is a tagged commit, so `git diff step-2 step-3` shows exactly what a layer adds. The step tags predate the rename, so at those commits the projects and the command are still called FixHarness and `fixharness run`.
+Each step is a branch, so `git diff step-2 step-3` shows exactly what a layer adds. The step branches predate the rename, so on those branches the projects and the command are still called FixHarness and `fixharness run`.
 
-| Tag | Adds | What it fixes about the step before |
+| Branch | Adds | What it fixes about the step before |
 |---|---|---|
 | `step-1` | Sample app, Reqnroll + Playwright suite, five planted failures | A problem with known answers to work on. |
 | `step-2` | Tools and the bare agent loop | Nothing yet. The loop can run forever, edits your checkout, and can "fix" a test by deleting its assertion. |
