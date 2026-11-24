@@ -1,0 +1,14 @@
+diff --git a/sample/TinyShop.Web/app.js b/sample/TinyShop.Web/app.js
+index 47f9605..f925e84 100644
+--- a/sample/TinyShop.Web/app.js
++++ b/sample/TinyShop.Web/app.js
+@@ -16,7 +16,8 @@ function totalPence() {
+ 
+ function render() {
+   el("basket-count").textContent = String(basket.length);
+-  el("basket-total").textContent = money(totalPence());
++  // Totals now come from the (simulated) pricing service, so they arrive a moment later.
++  setTimeout(() => { el("basket-total").textContent = money(totalPence()); }, 400);
+ }
+ 
+ for (const product of Object.keys(PRICES)) {

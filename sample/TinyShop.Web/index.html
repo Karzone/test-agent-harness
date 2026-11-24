@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>TinyShop</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 32rem; margin: 2rem auto; }
+    li { margin: 0.4rem 0; }
+    button { margin-left: 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>TinyShop</h1>
+
+  <ul id="products">
+    <li>Apple £0.50 <button data-testid="add-apple">Add to basket</button></li>
+    <li>Bread £1.20 <button data-testid="add-bread">Add to basket</button></li>
+    <li>Coffee £3.00 <button data-testid="add-coffee">Add to basket</button></li>
+  </ul>
+
+  <section aria-label="Basket">
+    <h2>Basket</h2>
+    <p>Items: <span data-testid="basket-count">0</span></p>
+    <p>Total: <span data-testid="basket-total">£0.00</span></p>
+    <label>Discount code <input data-testid="discount-code"></label>
+    <button data-testid="apply-discount">Apply</button>
+    <button data-testid="checkout">Checkout</button>
+  </section>
+
+  <p data-testid="confirmation" hidden></p>
+
+  <script src="app.js"></script>
+</body>
+</html>

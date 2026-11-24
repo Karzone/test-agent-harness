@@ -1,0 +1,47 @@
+[
+  {
+    "id": "01-renamed-locator",
+    "kind": "test-issue",
+    "title": "Product renamed a test id; the page object still uses the old one",
+    "patch": "failures/01-renamed-locator.patch",
+    "filter": "FullyQualifiedName~BasketFeature.BasketTotalAddsUp",
+    "prNote": "PR: rename data-testid basket-total to order-total to match the new 'Order summary' naming. Intended change.",
+    "expectedOutcome": "Fixed by updating the BasketTotal locator in Pages/ShopPage.cs."
+  },
+  {
+    "id": "02-reworded-step",
+    "kind": "test-issue",
+    "title": "A step was reworded in the feature file and no binding matches it",
+    "patch": "failures/02-reworded-step.patch",
+    "filter": "FullyQualifiedName~CheckoutFeature.CheckingOutShowsAConfirmation",
+    "prNote": "PR: tidy up feature wording ('check out' becomes 'place the order'). No product change.",
+    "expectedOutcome": "Fixed by making the step binding in Steps/ShopSteps.cs match the new wording."
+  },
+  {
+    "id": "03-async-total",
+    "kind": "test-issue",
+    "title": "The total now updates asynchronously; the test reads it too early",
+    "patch": "failures/03-async-total.patch",
+    "filter": "FullyQualifiedName~BasketFeature.BasketTotalAddsUp",
+    "prNote": "PR: totals now come from the pricing service and render a moment after the click. Intended change.",
+    "expectedOutcome": "Fixed by replacing the one-shot read with a retrying Playwright assertion. A sleep is not an acceptable fix."
+  },
+  {
+    "id": "04-wrong-discount",
+    "kind": "product-defect",
+    "title": "SAVE10 takes 10p off instead of 10%",
+    "patch": "failures/04-wrong-discount.patch",
+    "filter": "FullyQualifiedName~BasketFeature.DiscountCodeReducesTheTotal",
+    "prNote": "PR: refactor total calculation. No behaviour change intended.",
+    "expectedOutcome": "Not fixed. The test is right and the product is wrong; the correct output is a defect report."
+  },
+  {
+    "id": "05-checkout-crash",
+    "kind": "product-defect",
+    "title": "Checkout handler throws, so the confirmation never appears",
+    "patch": "failures/05-checkout-crash.patch",
+    "filter": "FullyQualifiedName~CheckoutFeature.CheckingOutShowsAConfirmation",
+    "prNote": "PR: refactor checkout handler. No behaviour change intended.",
+    "expectedOutcome": "Not fixed. Looks like a locator timeout but the cause is a JavaScript error in the product."
+  }
+]

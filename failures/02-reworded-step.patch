@@ -1,0 +1,11 @@
+diff --git a/sample/TinyShop.Tests/Features/Checkout.feature b/sample/TinyShop.Tests/Features/Checkout.feature
+index e5a29b3..481c5eb 100644
+--- a/sample/TinyShop.Tests/Features/Checkout.feature
++++ b/sample/TinyShop.Tests/Features/Checkout.feature
+@@ -3,5 +3,5 @@ Feature: Checkout
+   Scenario: Checking out shows a confirmation
+     Given the shop is open
+     When I add "Bread" to the basket
+-    And I check out
++    And I place the order
+     Then I see the confirmation "Order placed: 1 item, total £1.20"

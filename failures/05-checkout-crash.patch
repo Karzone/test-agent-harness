@@ -1,0 +1,13 @@
+diff --git a/sample/TinyShop.Web/app.js b/sample/TinyShop.Web/app.js
+index 47f9605..9d33b36 100644
+--- a/sample/TinyShop.Web/app.js
++++ b/sample/TinyShop.Web/app.js
+@@ -34,7 +34,7 @@ el("apply-discount").addEventListener("click", () => {
+ 
+ el("checkout").addEventListener("click", () => {
+   const confirmation = el("confirmation");
+-  const noun = basket.length === 1 ? "item" : "items";
++  const noun = order.items.length === 1 ? "item" : "items";
+   confirmation.textContent = basket.length === 0
+     ? "Your basket is empty"
+     : `Order placed: ${basket.length} ${noun}, total ${money(totalPence())}`;

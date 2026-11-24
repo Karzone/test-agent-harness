@@ -1,0 +1,26 @@
+diff --git a/sample/TinyShop.Web/app.js b/sample/TinyShop.Web/app.js
+index 47f9605..839bc2f 100644
+--- a/sample/TinyShop.Web/app.js
++++ b/sample/TinyShop.Web/app.js
+@@ -16,7 +16,7 @@ function totalPence() {
+ 
+ function render() {
+   el("basket-count").textContent = String(basket.length);
+-  el("basket-total").textContent = money(totalPence());
++  el("order-total").textContent = money(totalPence());
+ }
+ 
+ for (const product of Object.keys(PRICES)) {
+diff --git a/sample/TinyShop.Web/index.html b/sample/TinyShop.Web/index.html
+index 8f0dbbf..ed945ee 100644
+--- a/sample/TinyShop.Web/index.html
++++ b/sample/TinyShop.Web/index.html
+@@ -21,7 +21,7 @@
+   <section aria-label="Basket">
+     <h2>Basket</h2>
+     <p>Items: <span data-testid="basket-count">0</span></p>
+-    <p>Total: <span data-testid="basket-total">£0.00</span></p>
++    <p>Total: <span data-testid="order-total">£0.00</span></p>
+     <label>Discount code <input data-testid="discount-code"></label>
+     <button data-testid="apply-discount">Apply</button>
+     <button data-testid="checkout">Checkout</button>

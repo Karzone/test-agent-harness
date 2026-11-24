@@ -1,0 +1,13 @@
+diff --git a/sample/TinyShop.Web/app.js b/sample/TinyShop.Web/app.js
+index 47f9605..689c1ba 100644
+--- a/sample/TinyShop.Web/app.js
++++ b/sample/TinyShop.Web/app.js
+@@ -11,7 +11,7 @@ const money = (pence) => `£${(pence / 100).toFixed(2)}`;
+ 
+ function totalPence() {
+   const subtotal = basket.reduce((sum, product) => sum + PRICES[product], 0);
+-  return Math.round(subtotal * (100 - discountPercent) / 100);
++  return Math.max(0, subtotal - discountPercent);
+ }
+ 
+ function render() {
