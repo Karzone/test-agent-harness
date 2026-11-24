@@ -1,8 +1,11 @@
 # test-agent-harness
 
-An agent harness for testing work, built one step at a time in C#. Its first mode, `tah fix`, repairs failing automation tests.
+An agent harness for testing work, built one step at a time in C#. It has two modes:
 
-Give it a failing test. It answers with one of two things:
+- `tah fix` repairs a failing automation test, or reports a product defect.
+- `tah story` checks a user story in a real browser, the way a tester would by hand.
+
+Give `tah fix` a failing test. It answers with one of two things:
 
 - a **verified patch** to the test code, or
 - a **defect report** saying the test is right and the product is wrong.
@@ -15,13 +18,14 @@ The idea and the step-by-step format come from Tejas Kumar's [basically-ai-harne
 
 | Part | State |
 |---|---|
-| Harness core, CLI, eval | Compiled and covered by 41 self-tests, including end-to-end runs against real git worktrees. |
+| Harness core, CLI, eval | Compiled and covered by 47 self-tests, including end-to-end runs against real git worktrees. |
+| Story testing (`tah story`) | Run end to end in a real Chromium against the sample page, with scripted testers. |
 | Sample app and the five planted failures | Checked in a real browser: the app is green, and each planted failure breaks exactly the scenarios it should. |
 | Sample Reqnroll + Playwright suite (`sample/TinyShop.Tests`) | **Written but never compiled.** The environment it was built in could not reach NuGet. Run it once before relying on it; the package versions and the test names in `failures/manifest.json` are the likeliest things to need a tweak. |
 | `dotnet test` runner and TRX parsing | The runner was exercised only as far as a failed restore. The parser is tested against a hand-written TRX file, not one produced by a real run. |
 | Live model client | Request and response formats are unit-tested. It has not been called against a live endpoint. |
 
-In the self-tests a simulator stands in for `dotnet test`, and scripted "models" stand in for a real one.
+In the self-tests a simulator stands in for `dotnet test`, and scripted "models" stand in for a real one. `docs/capability-report.md` shows one end-to-end test per capability with the evidence each produced.
 
 ## Quick start
 
@@ -41,7 +45,11 @@ dotnet run --project src/TestAgentHarness.Cli -- eval --model scripted:failures/
 # 4. One failure, watching a badly behaved "model" get blocked and corrected.
 dotnet run --project src/TestAgentHarness.Cli -- fix --failure 01-renamed-locator --model scripted:failures/scripts --no-memory
 
-# 5. A real model.
+# 5. Story testing in a real browser (needs Node.js).
+(cd tools/browser-sidecar && npm install && npx playwright install chromium)
+dotnet run --project src/TestAgentHarness.Cli -- story --story sample/stories/discount-code.json --model scripted:sample/stories/scripts/discount-code.json
+
+# 6. A real model.
 export TAH_API_KEY=...
 export TAH_MODEL=...                 # e.g. an OpenRouter model id or an Azure deployment name
 export TAH_BASE_URL=...              # optional; defaults to https://openrouter.ai/api/v1
@@ -145,6 +153,30 @@ Three rules keep it honest:
 
 Fingerprints are plain text processing (timings, line numbers, ids and paths stripped), so the same failure always gets the same one. There are no embeddings and no vector store.
 
+### Story testing (`Story/`)
+
+`tah story --story <file>` gives the model browser tools (snapshot, navigate, click, fill) and a story file:
+
+```json
+{
+  "title": "Discount code reduces the basket total",
+  "startUrl": "sample/TinyShop.Web/index.html",
+  "forbiddenActions": ["checkout", "delete", "pay"],
+  "criteria": [
+    { "id": "AC2", "text": "Applying SAVE10 reduces the total by 10%, to £2.70", "expect": "£2.70" }
+  ]
+}
+```
+
+The same harness ideas apply, with a browser as the environment instead of a git worktree:
+
+- **Evidence, not claims.** The model cannot declare a criterion passed. It calls `record_result` with a selector; the harness reads that element itself, checks it against `expect`, and takes a screenshot. A "pass" the page does not support is refused.
+- **Unverified is not passed.** A criterion with no recorded evidence is reported as unverified whatever the model's final answer says, and the story's outcome is `Incomplete`.
+- **Guardrails.** Only URLs under the story's allowed area can be opened, and elements whose text matches a forbidden action are never clicked.
+- **Review flag.** A criterion with no `expect` cannot be checked by the harness, so its evidence is flagged for a person.
+
+The browser is a small Node script (`tools/browser-sidecar`) driving Playwright, behind the `IBrowser` interface. A Playwright for .NET implementation could replace it without touching the tools or the runner.
+
 ### Eval (`Eval/`)
 
 `tah eval` runs every planted failure and scores it against the known answer.
@@ -195,7 +227,8 @@ The harness works from the commit at `HEAD`. Uncommitted changes in your checkou
 - The triage rules are few and written for this sample. They will need extending for a real product, and `BehaviourChangedByRefactor` depends on what people write in pull-request descriptions.
 - Only `dotnet test` is supported as a runner. `ITestRunner` is the seam for others.
 - One test at a time, one workspace at a time. No parallel runs.
-- The model sees source files and test output only. It has no DOM snapshot or Playwright trace tool yet, which matters for locator fixes in apps whose markup is not in the repository.
+- In `tah fix` the model sees source files and test output only. It has no DOM snapshot or Playwright trace tool yet, which matters for locator fixes in apps whose markup is not in the repository.
+- `tah story` checks what the story file makes checkable. A criterion without an `expect` value relies on a person reviewing the evidence, and a story run does not yet produce an automated test from what it did.
 
 ## Layout
 
@@ -210,10 +243,14 @@ src/TestAgentHarness.Core/      the harness (no package references)
   Triage/                 rules and verdicts
   Memory/                 fingerprints and the learning store
   Eval/                   the eval runner
+  Story/                  story checking: browser interface, tools, runner
   Testing/                dotnet test runner, TRX parser
 src/TestAgentHarness.Cli/       the tah command
 tests/TestAgentHarness.SelfTests/   tests for the harness (plain console app)
 sample/TinyShop.Web/      the "product": one static page
 sample/TinyShop.Tests/    Reqnroll + Playwright suite
+sample/stories/           a sample story and scripted testers
+tools/browser-sidecar/    the Playwright browser used by story checking
+docs/                     capability test report
 failures/                 planted failures, their answers, scripted models
 ```

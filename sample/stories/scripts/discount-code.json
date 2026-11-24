@@ -1,0 +1,98 @@
+{
+  "description": "An honest scripted tester. It expects AC2 to pass; if the harness refuses that because the page shows something else, it records the failure instead.",
+  "attempts": [
+    [
+      {
+        "calls": [
+          {
+            "tool": "browser_snapshot",
+            "args": {}
+          }
+        ]
+      },
+      {
+        "say": "Add Coffee to the basket.",
+        "calls": [
+          {
+            "tool": "browser_click",
+            "args": {
+              "selector": "[data-testid='add-coffee']"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "tool": "record_result",
+            "args": {
+              "criterion_id": "AC1",
+              "status": "pass",
+              "selector": "[data-testid='basket-total']"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "tool": "record_result",
+            "args": {
+              "criterion_id": "AC3",
+              "status": "pass",
+              "selector": "[data-testid='basket-count']",
+              "note": "Count went from 0 to 1 after adding one item."
+            }
+          }
+        ]
+      },
+      {
+        "say": "Apply the discount code.",
+        "calls": [
+          {
+            "tool": "browser_fill",
+            "args": {
+              "selector": "[data-testid='discount-code']",
+              "value": "SAVE10"
+            }
+          },
+          {
+            "tool": "browser_click",
+            "args": {
+              "selector": "[data-testid='apply-discount']"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "tool": "record_result",
+            "args": {
+              "criterion_id": "AC2",
+              "status": "pass",
+              "selector": "[data-testid='basket-total']"
+            }
+          }
+        ]
+      },
+      {
+        "say": "The total is not what the story expects. Record what the page shows.",
+        "calls": [
+          {
+            "tool": "record_result",
+            "args": {
+              "criterion_id": "AC2",
+              "status": "fail",
+              "selector": "[data-testid='basket-total']",
+              "note": "Expected 10% off £3.00."
+            }
+          }
+        ]
+      },
+      {
+        "say": "All acceptance criteria have been checked."
+      }
+    ]
+  ]
+}

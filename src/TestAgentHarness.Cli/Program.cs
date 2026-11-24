@@ -15,6 +15,8 @@ try
     {
         case "fix":
             return await Commands.RunAsync(options, repo);
+        case "story":
+            return await Commands.StoryAsync(options, repo);
         case "feedback":
             return Commands.Feedback(options, repo);
         case "memory":

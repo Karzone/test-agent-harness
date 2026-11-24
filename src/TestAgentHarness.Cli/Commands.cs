@@ -2,6 +2,7 @@ using System.Text.Json;
 using TestAgentHarness.Eval;
 using TestAgentHarness.Harness;
 using TestAgentHarness.Memory;
+using TestAgentHarness.Story;
 using TestAgentHarness.Testing;
 using TestAgentHarness.Triage;
 
@@ -21,6 +22,11 @@ public static class Commands
               --no-memory         do not read or write .testagentharness/memory.jsonl
               --out <dir>         where to write report.md, trace.json and fix.patch
 
+        tah story --story <story.json> [--repo <path>] [--model <name>] [--out <dir>]
+            Check a user story in a real browser. Each acceptance criterion is passed or
+            failed only on evidence the harness reads from the page itself.
+            Needs Node.js, and "npm install" run once in tools/browser-sidecar.
+
         tah feedback --label test-issue|product-defect [--note <text>] [--out <dir>]
             Correct the classification of the last run. The same failure is then
             always classified your way, whatever the rules or the model say.
@@ -38,6 +44,7 @@ public static class Commands
         (any OpenAI-compatible endpoint: OpenAI, Azure OpenAI, OpenRouter).
 
         Exit codes for fix: 0 fixed, 1 not fixed, 3 product defect, 2 could not run, nothing to do, or bad usage.
+        Exit codes for story: 0 all criteria passed, 1 a criterion failed, 2 a criterion could not be verified.
         Exit codes for eval: 0 no harmful result, 1 a false fix or a wrongly blocked test issue.
         """;
 
@@ -72,6 +79,33 @@ public static class Commands
             FixOutcome.Fixed => 0,
             FixOutcome.NotFixed => 1,
             FixOutcome.ProductDefect => 3,
+            _ => 2,
+        };
+    }
+
+    public static async Task<int> StoryAsync(CliOptions options, string repo)
+    {
+        var storyPath = Path.GetFullPath(Path.Combine(repo, options.Get("story") ?? throw new ArgumentException("Pass --story <story.json>.")));
+        var story = UserStory.Load(storyPath, repo);
+        var model = ModelFactory.Create(options.Get("model"), repo);
+        var sidecar = Path.Combine(repo, "tools", "browser-sidecar", "sidecar.mjs");
+
+        Console.WriteLine($"Model: {model.Name}\nStory: {story.Title}\n");
+        var runner = new StoryRunner(model, async () => await SidecarBrowser.StartAsync(sidecar), Console.WriteLine);
+        var directory = Path.Combine(OutDirectory(options, repo), "story");
+        var result = await runner.RunAsync(story, directory);
+
+        var markdown = StoryRunner.ToMarkdown(result);
+        Console.WriteLine("\n" + markdown);
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(Path.Combine(directory, "story-report.md"), markdown);
+        File.WriteAllText(Path.Combine(directory, "story-trace.json"), ReportWriter.ToJson(result));
+        Console.WriteLine($"Output written to {directory}");
+
+        return result.Outcome switch
+        {
+            StoryOutcome.Passed => 0,
+            StoryOutcome.Failed => 1,
             _ => 2,
         };
     }

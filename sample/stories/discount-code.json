@@ -1,0 +1,26 @@
+{
+  "title": "Discount code reduces the basket total",
+  "story": "As a shopper, I want to apply a discount code, so that I pay less for my basket.",
+  "startUrl": "sample/TinyShop.Web/index.html",
+  "forbiddenActions": [
+    "checkout",
+    "delete",
+    "pay"
+  ],
+  "criteria": [
+    {
+      "id": "AC1",
+      "text": "Adding Coffee to the basket shows a basket total of £3.00",
+      "expect": "£3.00"
+    },
+    {
+      "id": "AC2",
+      "text": "Applying the discount code SAVE10 reduces the total by 10%, to £2.70",
+      "expect": "£2.70"
+    },
+    {
+      "id": "AC3",
+      "text": "The basket shows how many items it holds"
+    }
+  ]
+}

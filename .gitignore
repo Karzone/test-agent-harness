@@ -9,3 +9,5 @@ tah-out/
 .vs/
 .idea/
 .env
+node_modules/
+tah-out/

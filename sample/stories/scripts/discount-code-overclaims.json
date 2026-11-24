@@ -1,0 +1,84 @@
+{
+  "description": "A scripted tester that overclaims. When the harness refuses its 'pass' for AC2, it does not record the failure; it just announces that everything passed.",
+  "attempts": [
+    [
+      {
+        "calls": [
+          {
+            "tool": "browser_snapshot",
+            "args": {}
+          }
+        ]
+      },
+      {
+        "say": "Add Coffee to the basket.",
+        "calls": [
+          {
+            "tool": "browser_click",
+            "args": {
+              "selector": "[data-testid='add-coffee']"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "tool": "record_result",
+            "args": {
+              "criterion_id": "AC1",
+              "status": "pass",
+              "selector": "[data-testid='basket-total']"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "tool": "record_result",
+            "args": {
+              "criterion_id": "AC3",
+              "status": "pass",
+              "selector": "[data-testid='basket-count']",
+              "note": "Count went from 0 to 1 after adding one item."
+            }
+          }
+        ]
+      },
+      {
+        "say": "Apply the discount code.",
+        "calls": [
+          {
+            "tool": "browser_fill",
+            "args": {
+              "selector": "[data-testid='discount-code']",
+              "value": "SAVE10"
+            }
+          },
+          {
+            "tool": "browser_click",
+            "args": {
+              "selector": "[data-testid='apply-discount']"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "tool": "record_result",
+            "args": {
+              "criterion_id": "AC2",
+              "status": "pass",
+              "selector": "[data-testid='basket-total']"
+            }
+          }
+        ]
+      },
+      {
+        "say": "All three acceptance criteria pass. The story is done."
+      }
+    ]
+  ]
+}

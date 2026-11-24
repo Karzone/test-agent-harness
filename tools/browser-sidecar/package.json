@@ -1,0 +1,9 @@
+{
+  "name": "tah-browser-sidecar",
+  "private": true,
+  "type": "module",
+  "description": "Playwright browser driven by test-agent-harness over stdin/stdout.",
+  "dependencies": {
+    "playwright": "^1.49.0"
+  }
+}

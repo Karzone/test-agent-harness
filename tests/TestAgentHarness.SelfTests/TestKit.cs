@@ -20,6 +20,10 @@ public sealed class Suite
                 await body();
                 Console.WriteLine($"  PASS  {name}");
             }
+            catch (SkipException skip)
+            {
+                Console.WriteLine($"  SKIP  {name}\n        {skip.Message}");
+            }
             catch (Exception error)
             {
                 failed++;
@@ -31,6 +35,9 @@ public sealed class Suite
         return failed == 0 ? 0 : 1;
     }
 }
+
+/// <summary>Thrown by a test that cannot run in this environment (for example, no browser).</summary>
+public sealed class SkipException(string reason) : Exception(reason);
 
 public static class Check
 {
