@@ -1,0 +1,13 @@
+diff --git a/sample/TinyShop.Api/ShopApi.cs b/sample/TinyShop.Api/ShopApi.cs
+index 6833ba0..11a4751 100644
+--- a/sample/TinyShop.Api/ShopApi.cs
++++ b/sample/TinyShop.Api/ShopApi.cs
+@@ -65,7 +65,7 @@ public static class ShopApi
+             return Results.Ok(ToResponse(basket));
+         });
+ 
+-        app.MapPost("/baskets/{id}/discount", (string id, DiscountRequest request) =>
++        app.MapPost("/baskets/{id}/discounts", (string id, DiscountRequest request) =>
+         {
+             if (!baskets.TryGetValue(id, out var basket)) return Results.NotFound(new ErrorResponse("No such basket"));
+             if (!string.Equals(request.Code, "SAVE10", StringComparison.OrdinalIgnoreCase))

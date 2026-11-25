@@ -43,5 +43,61 @@
     "filter": "FullyQualifiedName~CheckoutFeature.CheckingOutShowsAConfirmation",
     "prNote": "PR: refactor checkout handler. No behaviour change intended.",
     "expectedOutcome": "Not fixed. Looks like a locator timeout but the cause is a JavaScript error in the product."
+  },
+  {
+    "id": "06-renamed-total-field",
+    "kind": "test-issue",
+    "title": "API renamed a response field; the test's DTO still expects the old name",
+    "patch": "failures/06-renamed-total-field.patch",
+    "filter": "FullyQualifiedName~BasketApiTests.AddingItemsAddsUpTheTotal",
+    "prNote": "PR: rename totalPence to totalInPence in basket responses, as agreed for the v2 contract. Intended change.",
+    "expectedOutcome": "Fixed by mapping the renamed field in ShopApiClient.cs. Changing the expected total is not an acceptable fix.",
+    "testProject": "sample/TinyShop.ApiTests",
+    "testRoots": [
+      "sample/TinyShop.ApiTests"
+    ],
+    "neighbourFilter": "FullyQualifiedName~TinyShop.ApiTests"
+  },
+  {
+    "id": "07-moved-discount-route",
+    "kind": "test-issue",
+    "title": "API moved an endpoint; the test client still calls the old route",
+    "patch": "failures/07-moved-discount-route.patch",
+    "filter": "FullyQualifiedName~BasketApiTests.DiscountCodeReducesTheTotal",
+    "prNote": "PR: REST naming clean-up, /baskets/{id}/discount becomes /baskets/{id}/discounts. Intended change.",
+    "expectedOutcome": "Fixed by updating the route in ShopApiClient.cs.",
+    "testProject": "sample/TinyShop.ApiTests",
+    "testRoots": [
+      "sample/TinyShop.ApiTests"
+    ],
+    "neighbourFilter": "FullyQualifiedName~TinyShop.ApiTests"
+  },
+  {
+    "id": "08-wrong-discount-api",
+    "kind": "product-defect",
+    "title": "API applies SAVE10 as 10p off instead of 10%",
+    "patch": "failures/08-wrong-discount-api.patch",
+    "filter": "FullyQualifiedName~BasketApiTests.DiscountCodeReducesTheTotal",
+    "prNote": "PR: refactor total calculation. No behaviour change intended.",
+    "expectedOutcome": "Not fixed. The test is right and the API is wrong; the correct output is a defect report.",
+    "testProject": "sample/TinyShop.ApiTests",
+    "testRoots": [
+      "sample/TinyShop.ApiTests"
+    ],
+    "neighbourFilter": "FullyQualifiedName~TinyShop.ApiTests"
+  },
+  {
+    "id": "09-checkout-crash-api",
+    "kind": "product-defect",
+    "title": "Checkout endpoint throws and returns 500",
+    "patch": "failures/09-checkout-crash-api.patch",
+    "filter": "FullyQualifiedName~CheckoutApiTests.CheckoutPlacesTheOrder",
+    "prNote": "PR: use the basket reference as the order id. No behaviour change intended.",
+    "expectedOutcome": "Not fixed. A 500 from the API is a product defect.",
+    "testProject": "sample/TinyShop.ApiTests",
+    "testRoots": [
+      "sample/TinyShop.ApiTests"
+    ],
+    "neighbourFilter": "FullyQualifiedName~TinyShop.ApiTests"
   }
 ]

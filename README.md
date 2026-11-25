@@ -2,13 +2,14 @@
 
 An agent harness for testing work, built one step at a time in C#. It has two modes:
 
-- `tah fix` repairs a failing automation test, or reports a product defect.
+- `tah fix` repairs a failing automation test (UI or API), or reports a product defect or an environment problem.
 - `tah story` checks a user story in a real browser, the way a tester would by hand.
 
-Give `tah fix` a failing test. It answers with one of two things:
+Give `tah fix` a failing test. It answers with one of three things:
 
-- a **verified patch** to the test code, or
-- a **defect report** saying the test is right and the product is wrong.
+- a **verified patch** to the test code,
+- a **defect report** saying the test is right and the product is wrong, or
+- an **environment report** saying the system under test could not be reached, with nothing changed.
 
 It is the code *around* a model, not a model: tools, guardrails, an isolated workspace, verification, triage rules, a memory and an eval. The model is one interface with one method, and any OpenAI-compatible endpoint (OpenAI, Azure OpenAI, OpenRouter) can sit behind it.
 
@@ -18,9 +19,12 @@ The idea and the step-by-step format come from Tejas Kumar's [basically-ai-harne
 
 | Part | State |
 |---|---|
-| Harness core, CLI, eval | Compiled and covered by 47 self-tests, including end-to-end runs against real git worktrees. |
+| Harness core, CLI, eval | Compiled and covered by 56 self-tests, including end-to-end runs against real git worktrees. |
 | Story testing (`tah story`) | Run end to end in a real Chromium against the sample page, with scripted testers. |
-| Sample app and the five planted failures | Checked in a real browser: the app is green, and each planted failure breaks exactly the scenarios it should. |
+| Backend (API) support | The sample API is real and runs. Fixes were verified by compiling the test client and calling the API over HTTP, through a package-free mirror of the API tests (`tests/ApiProbe`). |
+| Sample API test suite (`sample/TinyShop.ApiTests`) | **Written but never compiled**, for the same reason as the UI suite: it needs NUnit from NuGet. Its logic is the same as the probe's, which does run. |
+| Sample web page and its five planted failures | Checked in a real browser: the app is green, and each planted failure breaks exactly the scenarios it should. |
+| Sample API and its four planted failures | Checked over real HTTP: green when healthy, and each planted failure breaks exactly the tests it should. |
 | Sample Reqnroll + Playwright suite (`sample/TinyShop.Tests`) | **Written but never compiled.** The environment it was built in could not reach NuGet. Run it once before relying on it; the package versions and the test names in `failures/manifest.json` are the likeliest things to need a tweak. |
 | `dotnet test` runner and TRX parsing | The runner was exercised only as far as a failed restore. The parser is tested against a hand-written TRX file, not one produced by a real run. |
 | Live model client | Request and response formats are unit-tested. It has not been called against a live endpoint. |
@@ -37,6 +41,7 @@ dotnet run --project tests/TestAgentHarness.SelfTests
 dotnet build sample/TinyShop.Tests
 pwsh sample/TinyShop.Tests/bin/Debug/net8.0/playwright.ps1 install chromium
 dotnet test sample/TinyShop.Tests          # expect 4 passing scenarios
+dotnet test sample/TinyShop.ApiTests       # expect 5 passing tests (no browser or server needed)
 
 # 3. The whole harness against real "dotnet test", still with no API key:
 #    scripted models replay known tool calls for each planted failure.
@@ -65,7 +70,7 @@ Each step is a branch, so `git diff step-2 step-3` shows exactly what a layer ad
 
 | Branch | Adds | What it fixes about the step before |
 |---|---|---|
-| `step-1` | Sample app, Reqnroll + Playwright suite, five planted failures | A problem with known answers to work on. |
+| `step-1` | Sample app, Reqnroll + Playwright suite, five planted UI failures | A problem with known answers to work on. |
 | `step-2` | Tools and the bare agent loop | Nothing yet. The loop can run forever, edits your checkout, and can "fix" a test by deleting its assertion. |
 | `step-3` | Guardrails and context trimming | The loop always stops, and edits that cheat are rejected with the reason given back to the model. |
 | `step-4` | The harness owns the lifecycle | Work happens in a throwaway git worktree. Your checkout is never touched. |
@@ -79,7 +84,7 @@ Each step is a branch, so `git diff step-2 step-3` shows exactly what a layer ad
 ```
 open a throwaway workspace
  -> run the test: does it really fail?                 no: stop
- -> triage: a person's label, then rules               product defect: report and stop (no model)
+ -> triage: a person's label, then rules               product defect or environment problem: report and stop (no model)
  -> replay a remembered fix for this exact failure     verified: done (no model)
  -> agent loop: tools + guardrails + lessons from similar failures
  -> verify: diff obeys the policy, test passes 3 of 3, neighbours unbroken
@@ -88,6 +93,8 @@ open a throwaway workspace
 ```
 
 The model is the last resort, not the first step.
+
+Added after the step branches, on `main`: story testing, backend (API) tests with their own planted failures and rules, and the environment verdict.
 
 ## The parts
 
@@ -108,7 +115,7 @@ The patch policy is applied to every edit as it is made, and again to the final 
 | Skip or ignore a test | The second quickest. |
 | Add `Thread.Sleep`, `Task.Delay` or `WaitForTimeoutAsync` | A fixed wait hides a race instead of fixing it. |
 | Add an empty `catch` | Swallows the failure. |
-| Rewrite what a `Then` step expects | That is how a product defect gets "fixed". A person decides what the product should do. Switch off with `AllowExpectationChanges`. |
+| Rewrite what a `Then` step expects, or an expected value on a C# assertion line | That is how a product defect gets "fixed". A person decides what the product should do. Switch off with `AllowExpectationChanges`. |
 | Touch more than 3 files or about 40 lines | A test repair is small. A big diff is something else. |
 
 ### Verifier (`Harness/Verifier.cs`)
@@ -122,20 +129,39 @@ Rules run in order and the first verdict wins.
 | Rule | Evidence | Verdict |
 |---|---|---|
 | `MissingStepBinding` | "No matching step definition" | Test issue |
+| `EnvironmentUnavailable` | Connection refused, DNS failure, client timeout, 502/503/504 | Environment |
 | `BrowserScriptError` | The page threw an uncaught script error | Product defect |
-| `ServerError` | A 5xx response | Product defect |
+| `ServerError` | A 500 response | Product defect |
 | `OnlyTestCodeChanged` | The preceding change touched only test code | Test issue |
+| `NotFoundAfterRouteChange` | A 404, and the change altered a route in product code | Test issue |
 | `BehaviourChangedByRefactor` | The change says "no behaviour change", product code changed, an assertion sees a new value | Product defect |
 | `LocatorTimeoutAfterMarkupChange` | An element was not found and the change touched markup | Test issue |
 
 A rule is one function; add your own through `FixRunner.TriageRules`.
 
-When no rule matches, the model investigates and must end with `VERDICT: TEST_ISSUE` or `VERDICT: PRODUCT_DEFECT`. Its verdict is handled according to how much evidence there is:
+An **environment** verdict means the system under test could not be reached. Nothing is changed and the model is not called, because neither the test nor the product is at fault.
 
-- **Rules or a person say test issue, model says product defect:** the model is overruled, told why, and made to try again.
-- **No rule matched, model says product defect:** accepted, but the report says it is a judgement for a person to confirm.
+When no rule matches, the model investigates and must end with `VERDICT: TEST_ISSUE`, `VERDICT: PRODUCT_DEFECT` or `VERDICT: ENVIRONMENT`. Its verdict is handled according to how much evidence there is:
+
+- **Rules or a person say test issue, model says product defect or environment:** the model is overruled, told why, and made to try again.
+- **No rule matched, model says product defect or environment:** accepted, but the report says it is a judgement for a person to confirm.
 
 `BrowserScriptError` only works because the sample's hooks print browser errors into the test output (`sample/TinyShop.Tests/Support/Hooks.cs`). Without that, a crashed click handler and a stale locator both look like a timeout. It is worth copying into a real suite.
+
+### Backend (API) tests
+
+Nothing in the fixer is specific to UI tests: it runs whatever `dotnet test` runs. The repository has a second sample to show it, with four planted backend failures.
+
+| Planted failure | What happens | Right answer |
+|---|---|---|
+| `06-renamed-total-field` | The API renamed a response field, so the test reads 0 | Fix the test's DTO, not the expected total |
+| `07-moved-discount-route` | An endpoint moved, so the test gets a 404 | Fix the route in the test client |
+| `08-wrong-discount-api` | The API calculates the discount wrongly | Product defect |
+| `09-checkout-crash-api` | The checkout endpoint throws and returns 500 | Product defect |
+
+`sample/TinyShop.ApiTests` hosts the API inside the test process, so there is no server to start. For tests that call a deployed environment, the `EnvironmentUnavailable` rule keeps an outage from being treated as something to fix.
+
+A repository with more than one test project tells the harness which one to use with `--project`, `--test-roots` and `--neighbours`; planted failures carry the same settings in `failures/manifest.json`.
 
 ### Learning loop (`Memory/`)
 
@@ -143,7 +169,7 @@ What is learned lives in `.testagentharness/memory.jsonl`: plain JSON lines you 
 
 - **Replay.** A failure with the same fingerprint as one fixed before gets that patch applied and fully re-verified. If it passes, the run ends with no model call.
 - **Lessons.** A similar failure (same shape, different test or selector) gets the earlier fix, or an earlier rejected attempt, as a hint in the model's context.
-- **Labels.** `tah feedback --label test-issue` after a wrong classification. That exact failure is then classified your way every time, above the rules and the model.
+- **Labels.** `tah feedback --label test-issue` (or `product-defect`, or `environment`) after a wrong classification. That exact failure is then classified your way every time, above the rules and the model.
 
 Three rules keep it honest:
 
@@ -191,7 +217,7 @@ The browser is a small Node script (`tools/browser-sidecar`) driving Playwright,
 
 The command exits non-zero on `WronglyBlocked` or `FalseFix`, so it can gate a pipeline. Memory is off during an eval unless you pass `--with-memory`, so runs are comparable.
 
-The five planted failures are a start, not a benchmark. The eval gets useful when you add failures from your own history.
+The nine planted failures (five UI, four API) are a start, not a benchmark. The eval gets useful when you add failures from your own history.
 
 ## Using it on your own repository
 
@@ -226,6 +252,8 @@ The harness works from the commit at `HEAD`. Uncommitted changes in your checkou
 - A determined model can still write a wrong fix that passes: for example, hard-coding the expected value inside a step definition. The policy closes the common routes, not all of them. The output is a patch for review, never a merge.
 - The triage rules are few and written for this sample. They will need extending for a real product, and `BehaviourChangedByRefactor` depends on what people write in pull-request descriptions.
 - Only `dotnet test` is supported as a runner. `ITestRunner` is the seam for others.
+- The harness runs tests; it does not start the system under test. The sample API tests host the API in-process. Tests against a deployed environment rely on that environment being up.
+- `tah story` is browser-only. There is no API equivalent yet.
 - One test at a time, one workspace at a time. No parallel runs.
 - In `tah fix` the model sees source files and test output only. It has no DOM snapshot or Playwright trace tool yet, which matters for locator fixes in apps whose markup is not in the repository.
 - `tah story` checks what the story file makes checkable. A criterion without an `expect` value relies on a person reviewing the evidence, and a story run does not yet produce an automated test from what it did.
@@ -247,8 +275,11 @@ src/TestAgentHarness.Core/      the harness (no package references)
   Testing/                dotnet test runner, TRX parser
 src/TestAgentHarness.Cli/       the tah command
 tests/TestAgentHarness.SelfTests/   tests for the harness (plain console app)
+tests/ApiProbe/           package-free mirror of the API tests, used to test the harness
 sample/TinyShop.Web/      the "product": one static page
 sample/TinyShop.Tests/    Reqnroll + Playwright suite
+sample/TinyShop.Api/      the backend "product": a small HTTP API
+sample/TinyShop.ApiTests/ NUnit tests for the API
 sample/stories/           a sample story and scripted testers
 tools/browser-sidecar/    the Playwright browser used by story checking
 docs/                     capability test report

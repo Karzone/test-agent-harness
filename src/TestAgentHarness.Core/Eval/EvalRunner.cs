@@ -13,6 +13,10 @@ public enum EvalVerdict
     CorrectFix,
     /// <summary>Product defect, and it was reported as one.</summary>
     CorrectDefect,
+    /// <summary>Environment problem, and it was reported as one with nothing changed.</summary>
+    CorrectEnvironment,
+    /// <summary>The verdict was wrong, but no patch was produced and no defect was raised. Safe, not helpful.</summary>
+    Misclassified,
     /// <summary>Test issue that was not fixed. Costs time, harms nothing.</summary>
     MissedFix,
     /// <summary>Product defect with no patch produced, but not called a defect either. Safe, not helpful.</summary>
@@ -37,7 +41,7 @@ public sealed record EvalCaseResult(
 
 public sealed record EvalSummary(string Model, IReadOnlyList<EvalCaseResult> Cases)
 {
-    public int Correct => Cases.Count(c => c.Verdict is EvalVerdict.CorrectFix or EvalVerdict.CorrectDefect);
+    public int Correct => Cases.Count(c => c.Verdict is EvalVerdict.CorrectFix or EvalVerdict.CorrectDefect or EvalVerdict.CorrectEnvironment);
     public int FalseFixes => Cases.Count(c => c.Verdict == EvalVerdict.FalseFix);
     public int WronglyBlocked => Cases.Count(c => c.Verdict == EvalVerdict.WronglyBlocked);
     public int DecidedWithoutModel => Cases.Count(c => c.ModelCalls == 0);
@@ -79,6 +83,11 @@ public static class EvalRunner
     public static EvalVerdict Judge(FailureKind expected, FixOutcome outcome) => (expected, outcome) switch
     {
         (_, FixOutcome.NotReproduced or FixOutcome.NoTestsMatched or FixOutcome.CouldNotRun) => EvalVerdict.Invalid,
+        (FailureKind.Environment, FixOutcome.EnvironmentIssue) => EvalVerdict.CorrectEnvironment,
+        (FailureKind.Environment, FixOutcome.Fixed) => EvalVerdict.FalseFix,
+        (FailureKind.Environment, FixOutcome.ProductDefect) => EvalVerdict.WronglyBlocked,
+        (FailureKind.Environment, _) => EvalVerdict.Misclassified,
+        (_, FixOutcome.EnvironmentIssue) => EvalVerdict.Misclassified,
         (FailureKind.TestIssue, FixOutcome.Fixed) => EvalVerdict.CorrectFix,
         (FailureKind.TestIssue, FixOutcome.ProductDefect) => EvalVerdict.WronglyBlocked,
         (FailureKind.TestIssue, _) => EvalVerdict.MissedFix,

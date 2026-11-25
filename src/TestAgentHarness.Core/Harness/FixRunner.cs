@@ -30,6 +30,8 @@ public enum FixOutcome
     NotFixed,
     /// <summary>The test is right and the product is wrong. A defect report is produced instead of a patch.</summary>
     ProductDefect,
+    /// <summary>The system under test could not be reached. Nothing was changed; try again when it is back.</summary>
+    EnvironmentIssue,
     /// <summary>The test passed before anything was changed.</summary>
     NotReproduced,
     /// <summary>The filter matched no tests, so there was nothing to judge.</summary>
@@ -113,13 +115,18 @@ public sealed class FixRunner(IModelClient model, ITestRunner testRunner, Action
         else
         {
             var changedPaths = request.ChangeDiff is null ? [] : GitChanges.PathsInPatch(request.ChangeDiff);
-            triage = FailureTriage.Classify(new FailureEvidence(baseline, changedPaths, request.TestRoots, request.ChangeNote), TriageRules);
+            triage = FailureTriage.Classify(new FailureEvidence(baseline, changedPaths, request.TestRoots, request.ChangeNote, request.ChangeDiff), TriageRules);
         }
         log?.Invoke($"[harness] triage: {triage.Kind} ({triage.Source}) - {triage.Reason}");
 
         if (triage.Kind == FailureKind.ProductDefect)
         {
             return Finish(FixOutcome.ProductDefect, $"Product defect, decided by {triage.Source} without calling the model. {triage.Reason}");
+        }
+
+        if (triage.Kind == FailureKind.Environment)
+        {
+            return Finish(FixOutcome.EnvironmentIssue, $"Environment problem, decided by {triage.Source} without calling the model. Nothing was changed. {triage.Reason}");
         }
 
         if (!string.IsNullOrWhiteSpace(request.NeighbourFilter))
@@ -169,24 +176,28 @@ public sealed class FixRunner(IModelClient model, ITestRunner testRunner, Action
             var loop = await AgentLoop.RunAsync(model, messages, tools, LoopGuardrails.Default, log, cancellationToken);
             var patch = await workspace.DiffAsync();
 
-            if (FailureTriage.ParseModelVerdict(loop.Answer) == FailureKind.ProductDefect)
+            var modelVerdict = FailureTriage.ParseModelVerdict(loop.Answer);
+            if (modelVerdict is FailureKind.ProductDefect or FailureKind.Environment)
             {
+                var claimed = modelVerdict == FailureKind.ProductDefect ? "a product defect" : "an environment problem";
                 if (triage.Kind == FailureKind.TestIssue)
                 {
                     // There is hard evidence that this is a test issue. A model that
                     // disagrees does not get to stop the fix; it is told why and tries again.
-                    var disagreement = $"You concluded this is a product defect, but the evidence says it is a test issue ({triage.Source}): {triage.Reason} Fix the test.";
+                    var disagreement = $"You concluded this is {claimed}, but the evidence says it is a test issue ({triage.Source}): {triage.Reason} Fix the test.";
                     attempts.Add(new Attempt(number, loop, patch, new VerifyResult(false, disagreement, [])));
                     rejections.Add(disagreement);
-                    log?.Invoke("[harness] the model said product defect; overruled by triage evidence, retrying");
+                    log?.Invoke($"[harness] the model said {claimed}; overruled by triage evidence, retrying");
                     continue;
                 }
 
-                // Nothing the model changed is kept: a defect verdict means the test was right.
+                // Nothing the model changed is kept: either verdict means the test was right.
                 // Nothing is remembered either. A model's opinion is not evidence.
-                attempts.Add(new Attempt(number, loop, "", new VerifyResult(false, "Not verified: the model concluded the product is at fault.", [])));
-                triage = new TriageVerdict(FailureKind.ProductDefect, "model", loop.Answer.Trim());
-                return Finish(FixOutcome.ProductDefect, "Product defect, in the model's judgement (no rule matched, so a person should confirm).");
+                attempts.Add(new Attempt(number, loop, "", new VerifyResult(false, $"Not verified: the model concluded this is {claimed}.", [])));
+                triage = new TriageVerdict(modelVerdict, "model", loop.Answer.Trim());
+                return modelVerdict == FailureKind.ProductDefect
+                    ? Finish(FixOutcome.ProductDefect, "Product defect, in the model's judgement (no rule matched, so a person should confirm).")
+                    : Finish(FixOutcome.EnvironmentIssue, "Environment problem, in the model's judgement (no rule matched, so a person should confirm).");
             }
 
             var verification = await Verify();

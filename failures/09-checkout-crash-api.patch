@@ -1,0 +1,13 @@
+diff --git a/sample/TinyShop.Api/ShopApi.cs b/sample/TinyShop.Api/ShopApi.cs
+index 6833ba0..d28a9a9 100644
+--- a/sample/TinyShop.Api/ShopApi.cs
++++ b/sample/TinyShop.Api/ShopApi.cs
+@@ -82,7 +82,7 @@ public static class ShopApi
+             if (!baskets.TryGetValue(id, out var basket)) return Results.NotFound(new ErrorResponse("No such basket"));
+             if (basket.Items.Count == 0) return Results.Conflict(new ErrorResponse("The basket is empty"));
+ 
+-            var orderId = Guid.NewGuid().ToString("N")[..8];
++            var orderId = basket.Reference![..8];
+             return Results.Ok(new OrderResponse(orderId, "placed", TotalPence(basket)));
+         });
+ 

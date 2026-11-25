@@ -1,0 +1,12 @@
+diff --git a/sample/TinyShop.Api/ShopApi.cs b/sample/TinyShop.Api/ShopApi.cs
+index 6833ba0..60b5337 100644
+--- a/sample/TinyShop.Api/ShopApi.cs
++++ b/sample/TinyShop.Api/ShopApi.cs
+@@ -95,6 +95,6 @@ public static class ShopApi
+     private static int TotalPence(Basket basket)
+     {
+         var subtotal = basket.Items.Sum(item => Products.Single(p => p.Id == item).PricePence);
+-        return (int)Math.Round(subtotal * (100 - basket.DiscountPercent) / 100.0);
++        return Math.Max(0, subtotal - basket.DiscountPercent);
+     }
+ }

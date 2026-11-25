@@ -79,6 +79,7 @@ public sealed class TempRepo : IDisposable
 
         CopyDirectory(System.IO.Path.Combine(SourceRoot, "sample"), System.IO.Path.Combine(path, "sample"));
         CopyDirectory(System.IO.Path.Combine(SourceRoot, "failures"), System.IO.Path.Combine(path, "failures"));
+        CopyDirectory(System.IO.Path.Combine(SourceRoot, "tests", "ApiProbe"), System.IO.Path.Combine(path, "tests", "ApiProbe"));
         File.Copy(System.IO.Path.Combine(SourceRoot, "testagentharness.json"), System.IO.Path.Combine(path, "testagentharness.json"));
         File.Copy(System.IO.Path.Combine(SourceRoot, ".gitignore"), System.IO.Path.Combine(path, ".gitignore"));
 

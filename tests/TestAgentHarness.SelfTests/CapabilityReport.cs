@@ -31,6 +31,7 @@ public static class CapabilityReport
 {
     private const string Simulated = "Real git worktrees and patches. Scripted model. Simulated test run.";
     private const string RealBrowser = "Real Chromium via Playwright. Scripted model.";
+    private const string RealApi = "Real API hosted in-process, real HTTP calls, real compile of the test client, real git worktrees. Scripted model. Test methods mirrored in a package-free probe.";
     private const string Locator01 = "01-renamed-locator";
 
     public static async Task<int> RunAsync(string outputDirectory)
@@ -173,15 +174,90 @@ public static class CapabilityReport
                 $"Run 1 triage source: {wrong.Triage.Source}\nRun 2 triage source: {corrected.Triage.Source}\nRun 2 attempts: {corrected.Attempts.Count} (overruled once, then fixed)");
         });
 
+        // ── Backend (API) tests ──────────────────────────────────────────────
+        await Run("B1", "Backend tests", "Fix an API test after a contract change, without touching the expected value",
+            "Planted failure 06 (the API renamed a response field). The scripted model first tries to change the expected total, then maps the renamed field.", RealApi, async () =>
+        {
+            using var repo = await TempRepo.CreateAsync();
+            var model = ScriptedModelClient.FromFile(Path.Combine(repo.Path, "failures", "scripts", "06-renamed-total-field.json"));
+            var result = await new FixRunner(model, new ApiProbeRunner()).RunAsync(TriageTests.Request(repo, "06-renamed-total-field"));
+
+            Check.Equal(FixOutcome.Fixed, result.Outcome, "outcome: " + result.Summary);
+            var rejection = result.Attempts[0].Loop.ToolEvents.Single(e => e.Result.StartsWith("Rejected by guardrail"));
+            Check.Contains("rewrites an expected value", rejection.Result, "the expected-value change was refused");
+            await HarnessTests.AssertRepoUntouched(repo);
+            return ("Fixed in one attempt. Changing the expected total was refused; the fix went into the test's DTO instead.",
+                "Original failure: " + FirstFailure(result) + "\n\nRefused edit: " + FirstViolation(rejection.Result)
+                + "\n\nVerifier: " + result.Attempts[0].Verification.Reason
+                + "\n\nVerified patch:\n```diff\n" + PatchBody(result.Patch!) + "\n```");
+        });
+
+        await Run("B2", "Backend tests", "Recognise a moved endpoint and fix the test client",
+            "Planted failure 07 (the discount endpoint moved from /discount to /discounts).", RealApi, async () =>
+        {
+            using var repo = await TempRepo.CreateAsync();
+            var model = ScriptedModelClient.FromFile(Path.Combine(repo.Path, "failures", "scripts", "07-moved-discount-route.json"));
+            var result = await new FixRunner(model, new ApiProbeRunner()).RunAsync(TriageTests.Request(repo, "07-moved-discount-route"));
+
+            Check.Equal(FixOutcome.Fixed, result.Outcome, "outcome: " + result.Summary);
+            Check.Equal("NotFoundAfterRouteChange", result.Triage.Source, "rule");
+            return ($"Fixed. Triaged as a test issue by the rule {result.Triage.Source} before the model was asked.",
+                "Original failure: " + FirstFailure(result) + "\n\nTriage reason: " + result.Triage.Reason
+                + "\n\nVerifier: " + result.Attempts[0].Verification.Reason
+                + "\n\nVerified patch:\n```diff\n" + PatchBody(result.Patch!) + "\n```");
+        });
+
+        await Run("B3", "Backend tests", "Report a wrong calculation in the API as a product defect",
+            "Planted failure 08 (the API applies SAVE10 as 10p off instead of 10%). A model that fails the test if it is ever called.", RealApi, async () =>
+        {
+            using var repo = await TempRepo.CreateAsync();
+            var result = await new FixRunner(new HarnessTests.ThrowingModel(), new ApiProbeRunner()).RunAsync(TriageTests.Request(repo, "08-wrong-discount-api"));
+
+            Check.Equal(FixOutcome.ProductDefect, result.Outcome, "outcome: " + result.Summary);
+            return ($"Product defect, decided by the rule {result.Triage.Source} with 0 model calls. No patch produced.",
+                "Original failure: " + FirstFailure(result) + "\n\nTriage reason: " + result.Triage.Reason);
+        });
+
+        await Run("B4", "Backend tests", "Report a 500 from the API as a product defect",
+            "Planted failure 09 (the checkout endpoint throws). A model that fails the test if it is ever called.", RealApi, async () =>
+        {
+            using var repo = await TempRepo.CreateAsync();
+            var result = await new FixRunner(new HarnessTests.ThrowingModel(), new ApiProbeRunner()).RunAsync(TriageTests.Request(repo, "09-checkout-crash-api"));
+
+            Check.Equal(FixOutcome.ProductDefect, result.Outcome, "outcome: " + result.Summary);
+            Check.Equal("ServerError", result.Triage.Source, "rule");
+            return ("Product defect, decided by the rule ServerError with 0 model calls. No patch produced.",
+                "Original failure: " + FirstFailure(result) + "\n\nTriage reason: " + result.Triage.Reason);
+        });
+
+        await Run("B5", "Backend tests", "Leave everything alone when the API cannot be reached",
+            "A test run that fails with 'Connection refused'. A model that fails the test if it is ever called.",
+            "Real git worktree. Canned test result (the sample API is hosted in-process, so it cannot be down).", async () =>
+        {
+            using var repo = await TempRepo.CreateAsync();
+            var down = new HarnessTests.FixedResultRunner(new Testing.TestRunResult(true,
+                [new Testing.TestCaseResult("CheckoutPlacesTheOrder", Testing.TestOutcome.Failed, "System.Net.Http.HttpRequestException : Connection refused (localhost:5001)")], ""));
+            var result = await new FixRunner(new HarnessTests.ThrowingModel(), down)
+                .RunAsync(new FixRequest(repo.Path, "FullyQualifiedName~CheckoutApiTests", ["sample/TinyShop.ApiTests"]));
+
+            Check.Equal(FixOutcome.EnvironmentIssue, result.Outcome, "outcome");
+            Check.Equal(0, result.ModelCalls, "model calls");
+            return ("Environment problem, decided by the rule EnvironmentUnavailable with 0 model calls. Nothing was changed.",
+                "Triage reason: " + result.Triage.Reason);
+        });
+
         // ── Eval ─────────────────────────────────────────────────────────────
         await Run("E1", "Eval", "Score every planted failure against its known answer",
-            "All five planted failures, each with its scripted model.", Simulated, async () =>
+            "All nine planted failures (five UI, four API), each with its scripted model.",
+            "UI failures: simulated test run. API failures: real API and real HTTP calls. Scripted models.", async () =>
         {
             using var repo = await TempRepo.CreateAsync();
             using var manifest = JsonDocument.Parse(repo.Read("failures/manifest.json"));
+            var apiIds = new HashSet<string>();
             var evalCases = manifest.RootElement.EnumerateArray().Select(entry =>
             {
                 var id = entry.GetProperty("id").GetString()!;
+                if (entry.TryGetProperty("testProject", out _)) apiIds.Add(id);
                 var expected = entry.GetProperty("kind").GetString() == "product-defect" ? FailureKind.ProductDefect : FailureKind.TestIssue;
                 return new EvalCase(id, expected, TriageTests.Request(repo, id));
             }).ToList();
@@ -190,10 +266,10 @@ public static class CapabilityReport
             {
                 var script = Path.Combine(repo.Path, "failures", "scripts", evalCase.Id + ".json");
                 IModelClient model = File.Exists(script) ? ScriptedModelClient.FromFile(script) : new HarnessTests.ThrowingModel();
-                return new FixRunner(model, new TinyShopSimulator());
+                return new FixRunner(model, apiIds.Contains(evalCase.Id) ? new ApiProbeRunner() : new TinyShopSimulator());
             });
 
-            Check.Equal(5, summary.Correct, "correct");
+            Check.Equal(9, summary.Correct, "correct");
             Check.True(!summary.HasHarmfulResult, "no harmful result");
             var rows = summary.Cases.Select(c => $"| {c.Id} | {c.Expected} | {c.Outcome} | {c.Verdict} | {c.TriageSource} | {c.ModelCalls} |");
             return ($"{summary.Correct} of {summary.Cases.Count} correct. False fixes: {summary.FalseFixes}. Wrongly blocked: {summary.WronglyBlocked}. Decided without the model: {summary.DecidedWithoutModel}.",
@@ -263,7 +339,7 @@ public static class CapabilityReport
         text.AppendLine();
         text.AppendLine($"{cases.Count(c => c.Passed)} of {cases.Count} capability tests passed.");
         text.AppendLine();
-        text.AppendLine("Every model in these tests is scripted: a fixed sequence of tool calls, chosen to show how the harness reacts. The auto-fix, triage, learning and eval tests use real git worktrees and patches with a simulated test run. The story tests drive a real browser.");
+        text.AppendLine("Every model in these tests is scripted: a fixed sequence of tool calls, chosen to show how the harness reacts. The UI auto-fix, triage and learning tests use real git worktrees and patches with a simulated test run. The backend tests compile the test client and call the real sample API over HTTP. The story tests drive a real browser.");
         text.AppendLine();
         text.AppendLine("| # | Area | Capability | Result | Seconds |");
         text.AppendLine("|---|---|---|---|---|");
@@ -291,6 +367,10 @@ public static class CapabilityReport
         + string.Join('\n', result.Criteria.Select(c => $"| {c.Id}: {c.Text} | {c.Status}{(c.NeedsReview ? " (review)" : "")} | {c.Evidence} |"));
 
     private static string FirstLine(string text) => text.Split('\n')[0];
+
+    /// <summary>The first failing test's own error message, on one line.</summary>
+    private static string FirstFailure(FixResult result) =>
+        (result.Baseline.Tests.FirstOrDefault(t => t.Outcome != Testing.TestOutcome.Passed)?.ErrorMessage ?? "").ReplaceLineEndings(" ").Trim();
 
     private static string FirstViolation(string rejection) =>
         rejection.Split('\n').Skip(1).FirstOrDefault()?.TrimStart('-', ' ') ?? rejection;

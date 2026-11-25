@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A package-free mirror of the NUnit tests in sample/TinyShop.ApiTests.
+    It compiles the real test client (ShopApiClient.cs), hosts the real API
+    in-process and makes the same calls with the same expected values, so the
+    harness can be tested end to end on backend failures without NuGet.
+    The real suite is sample/TinyShop.ApiTests; keep the two in step.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <Compile Include="Probe.cs" />
+    <Compile Include="..\..\sample\TinyShop.ApiTests\ShopApiClient.cs" />
+    <ProjectReference Include="..\..\sample\TinyShop.Api\TinyShop.Api.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -9,6 +9,11 @@ public enum FailureKind
     TestIssue,
     /// <summary>The test is right and the product is wrong. Must be reported, never "fixed".</summary>
     ProductDefect,
+    /// <summary>
+    /// Neither: the system under test could not be reached (service down, DNS, gateway).
+    /// Nothing in the tests or the product code will fix that, so nothing is changed.
+    /// </summary>
+    Environment,
     /// <summary>The rules could not tell. The model investigates.</summary>
     Unknown,
 }
@@ -24,7 +29,8 @@ public sealed record FailureEvidence(
     TestRunResult Baseline,
     IReadOnlyList<string> ChangedPaths,
     IReadOnlyList<string> TestRoots,
-    string? ChangeNote)
+    string? ChangeNote,
+    string? ChangeDiff = null)
 {
     /// <summary>Error message, stack and printed output of every test that did not pass.</summary>
     public string FailureText { get; } = string.Join("\n", Baseline.Tests
@@ -53,9 +59,11 @@ public static partial class FailureTriage
     public static IReadOnlyList<TriageRule> DefaultRules { get; } =
     [
         MissingStepBinding,
+        EnvironmentUnavailable,
         BrowserScriptError,
         ServerError,
         OnlyTestCodeChanged,
+        NotFoundAfterRouteChange,
         BehaviourChangedByRefactor,
         LocatorTimeoutAfterMarkupChange,
     ];
@@ -75,6 +83,34 @@ public static partial class FailureTriage
             ? new(FailureKind.TestIssue, nameof(MissingStepBinding), "A step in the feature file has no matching step definition.")
             : null;
 
+    /// <summary>
+    /// The system under test could not be reached at all: connection refused, DNS
+    /// failure, a gateway error. Sending this to a model invites it to "fix" a
+    /// test that is not broken.
+    /// </summary>
+    public static TriageVerdict? EnvironmentUnavailable(FailureEvidence evidence)
+    {
+        var match = EnvironmentRegex().Match(evidence.FailureText);
+        return match.Success
+            ? new(FailureKind.Environment, nameof(EnvironmentUnavailable), $"The system under test could not be reached: {match.Value.Trim()}")
+            : null;
+    }
+
+    /// <summary>
+    /// A request came back 404 and the change moved or renamed a route in product
+    /// code: the test is calling the old address.
+    /// </summary>
+    public static TriageVerdict? NotFoundAfterRouteChange(FailureEvidence evidence)
+    {
+        if (!NotFoundRegex().IsMatch(evidence.FailureText) || evidence.ChangeDiff is null) return null;
+
+        var routeLine = evidence.ChangeDiff.Split('\n')
+            .FirstOrDefault(line => (line.StartsWith('+') || line.StartsWith('-')) && !line.StartsWith("+++") && !line.StartsWith("---") && RouteRegex().IsMatch(line));
+        return routeLine is not null && evidence.ChangedProductPaths.Any()
+            ? new(FailureKind.TestIssue, nameof(NotFoundAfterRouteChange), $"A request returned 404 and the change altered a route ({routeLine.TrimStart('+', '-').Trim()}), so the test is calling an address that moved.")
+            : null;
+    }
+
     /// <summary>The page threw an uncaught JavaScript error while the test ran.</summary>
     public static TriageVerdict? BrowserScriptError(FailureEvidence evidence)
     {
@@ -84,7 +120,7 @@ public static partial class FailureTriage
             : null;
     }
 
-    /// <summary>The application answered with a 5xx.</summary>
+    /// <summary>The application itself failed with a 500. (502, 503 and 504 are environment problems, handled earlier.)</summary>
     public static TriageVerdict? ServerError(FailureEvidence evidence)
     {
         var match = ServerErrorRegex().Match(evidence.FailureText);
@@ -133,14 +169,28 @@ public static partial class FailureTriage
     {
         var match = ModelVerdictRegex().Matches(answer).LastOrDefault();
         if (match is null) return FailureKind.Unknown;
-        return match.Groups[1].Value.ToUpperInvariant() == "PRODUCT_DEFECT" ? FailureKind.ProductDefect : FailureKind.TestIssue;
+        return match.Groups[1].Value.ToUpperInvariant() switch
+        {
+            "PRODUCT_DEFECT" => FailureKind.ProductDefect,
+            "ENVIRONMENT" => FailureKind.Environment,
+            _ => FailureKind.TestIssue,
+        };
     }
 
     [GeneratedRegex(@"(pageerror|Uncaught)\b[^\n]*|\b(ReferenceError|TypeError|SyntaxError|RangeError):[^\n]*", RegexOptions.IgnoreCase)]
     private static partial Regex PageErrorRegex();
 
-    [GeneratedRegex(@"\b(HTTP|status(\s*code)?)\s*[:=]?\s*5\d\d\b[^\n]*|\b5\d\d\s+\(?(Internal Server Error|Bad Gateway|Service Unavailable|Gateway Timeout)\)?[^\n]*", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"\b(HTTP|status(\s*code)?)\s*[:=]?\s*50[01]\b[^\n]*|\b50[01]\s+\(?(Internal Server Error|Not Implemented)\)?[^\n]*|But was:\s*InternalServerError[^\n]*", RegexOptions.IgnoreCase)]
     private static partial Regex ServerErrorRegex();
+
+    [GeneratedRegex(@"\b(HTTP|status(\s*code)?)\s*[:=]?\s*50[234]\b[^\n]*|Connection refused[^\n]*|actively refused[^\n]*|No such host is known[^\n]*|Name or service not known[^\n]*|nodename nor servname[^\n]*|ERR_CONNECTION_REFUSED[^\n]*|ERR_NAME_NOT_RESOLVED[^\n]*|The request was canceled due to the configured HttpClient\.Timeout[^\n]*|\b50[234]\s+\(?(Bad Gateway|Service Unavailable|Gateway Timeout)\)?[^\n]*|But was:\s*(BadGateway|ServiceUnavailable|GatewayTimeout)[^\n]*", RegexOptions.IgnoreCase)]
+    private static partial Regex EnvironmentRegex();
+
+    [GeneratedRegex(@"\b404\s+\(?Not Found\)?|status\s*code\s*[:=]?\s*404|But was:\s*NotFound", RegexOptions.IgnoreCase)]
+    private static partial Regex NotFoundRegex();
+
+    [GeneratedRegex(@"\bMap(Get|Post|Put|Delete|Patch|Group)\s*\(|\[(Http(Get|Post|Put|Delete|Patch)|Route)\b|@(Get|Post|Put|Delete|Request)Mapping|\b(router|app)\.(get|post|put|delete|patch)\s*\(", RegexOptions.IgnoreCase)]
+    private static partial Regex RouteRegex();
 
     [GeneratedRegex(@"no\s+(behaviou?r(al)?|functional)\s+change|behaviou?r\s+(is\s+)?unchanged|pure\s+refactor", RegexOptions.IgnoreCase)]
     private static partial Regex NoBehaviourChangeRegex();
@@ -154,6 +204,6 @@ public static partial class FailureTriage
     [GeneratedRegex(@"\.(html?|cshtml|razor|jsx|tsx|vue|svelte)$", RegexOptions.IgnoreCase)]
     private static partial Regex MarkupFileRegex();
 
-    [GeneratedRegex(@"VERDICT\s*:\s*(TEST_ISSUE|PRODUCT_DEFECT)", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"VERDICT\s*:\s*(TEST_ISSUE|PRODUCT_DEFECT|ENVIRONMENT)", RegexOptions.IgnoreCase)]
     private static partial Regex ModelVerdictRegex();
 }

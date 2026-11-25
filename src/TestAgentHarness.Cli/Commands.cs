@@ -14,6 +14,9 @@ public static class Commands
         tah fix [--repo <path>] --failure <id>
         tah fix [--repo <path>] --filter <dotnet test filter> [--base <git ref>] [--note <text>]
             Triage one failing test, then fix it or report a product defect.
+              --project <path>    test project to run, when the repository has more than one (default: testagentharness.json)
+              --test-roots <a,b>  the only folders a fix may touch (default: testagentharness.json)
+              --neighbours <f>    filter for neighbouring tests that must not break
               --base <ref>        the change that preceded the failure is the diff from <ref> to HEAD
               --note <text>       pull-request description, used as evidence
               --model <name>      model name, or scripted:<file-or-directory> to replay a script
@@ -27,7 +30,7 @@ public static class Commands
             failed only on evidence the harness reads from the page itself.
             Needs Node.js, and "npm install" run once in tools/browser-sidecar.
 
-        tah feedback --label test-issue|product-defect [--note <text>] [--out <dir>]
+        tah feedback --label test-issue|product-defect|environment [--note <text>] [--out <dir>]
             Correct the classification of the last run. The same failure is then
             always classified your way, whatever the rules or the model say.
 
@@ -43,7 +46,8 @@ public static class Commands
         Model: set TAH_API_KEY, TAH_MODEL and optionally TAH_BASE_URL
         (any OpenAI-compatible endpoint: OpenAI, Azure OpenAI, OpenRouter).
 
-        Exit codes for fix: 0 fixed, 1 not fixed, 3 product defect, 2 could not run, nothing to do, or bad usage.
+        Exit codes for fix: 0 fixed, 1 not fixed, 3 product defect, 4 environment problem,
+                            2 could not run, nothing to do, or bad usage.
         Exit codes for story: 0 all criteria passed, 1 a criterion failed, 2 a criterion could not be verified.
         Exit codes for eval: 0 no harmful result, 1 a false fix or a wrongly blocked test issue.
         """;
@@ -52,15 +56,15 @@ public static class Commands
     {
         foreach (var item in PlantedFailure.LoadAll(repo))
         {
-            Console.WriteLine($"{item.Id,-22} {item.Kind,-15} {item.Title}");
+            Console.WriteLine($"{item.Id,-26} {(item.TestProject is null ? "ui" : "api"),-4} {item.Kind,-15} {item.Title}");
         }
         return 0;
     }
 
     public static async Task<int> RunAsync(CliOptions options, string repo)
     {
-        var config = RepoConfig.Load(repo);
         var failure = FindFailure(options, repo);
+        var config = RepoConfig.Load(repo).For(options, failure);
         var filter = options.Get("filter") ?? failure?.Filter ?? throw new ArgumentException("Pass --failure or --filter.");
 
         var model = ModelFactory.Create(options.Get("model"), repo, failure?.Id);
@@ -79,6 +83,7 @@ public static class Commands
             FixOutcome.Fixed => 0,
             FixOutcome.NotFixed => 1,
             FixOutcome.ProductDefect => 3,
+            FixOutcome.EnvironmentIssue => 4,
             _ => 2,
         };
     }
@@ -116,7 +121,8 @@ public static class Commands
         {
             "test-issue" => FailureKind.TestIssue,
             "product-defect" => FailureKind.ProductDefect,
-            _ => throw new ArgumentException("Pass --label test-issue or --label product-defect."),
+            "environment" => FailureKind.Environment,
+            _ => throw new ArgumentException("Pass --label test-issue, --label product-defect or --label environment."),
         };
 
         var lastFailurePath = Path.Combine(OutDirectory(options, repo), "last-failure.json");
@@ -158,15 +164,18 @@ public static class Commands
 
     public static async Task<int> EvalAsync(CliOptions options, string repo)
     {
-        var config = RepoConfig.Load(repo);
-        var runner = new DotnetTestRunner(config.TestProject);
+        var defaults = RepoConfig.Load(repo);
         var withMemory = options.Get("with-memory") is not null;
 
+        // Each planted failure names its own test suite (UI or API), so each case gets its own runner.
         var cases = new List<EvalCase>();
+        var runners = new Dictionary<string, DotnetTestRunner>();
         foreach (var failure in PlantedFailure.LoadAll(repo))
         {
+            var config = defaults.For(options, failure);
             var expected = failure.Kind == "product-defect" ? FailureKind.ProductDefect : FailureKind.TestIssue;
             cases.Add(new EvalCase(failure.Id, expected, await BuildRequestAsync(options, repo, config, failure, failure.Filter)));
+            runners[failure.Id] = new DotnetTestRunner(config.TestProject);
         }
 
         var modelName = options.Get("model") ?? Environment.GetEnvironmentVariable("TAH_MODEL") ?? "(unset)";
@@ -174,7 +183,7 @@ public static class Commands
             modelName,
             cases,
             // A fresh model client per case; memory is off by default so runs are comparable.
-            evalCase => new FixRunner(ModelFactory.Create(options.Get("model"), repo, evalCase.Id), runner, Console.WriteLine)
+            evalCase => new FixRunner(ModelFactory.Create(options.Get("model"), repo, evalCase.Id), runners[evalCase.Id], Console.WriteLine)
             {
                 Memory = withMemory ? new FixMemory(MemoryPath(repo)) : null,
             },

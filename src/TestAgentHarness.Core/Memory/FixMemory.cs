@@ -150,7 +150,7 @@ public sealed class FixMemory
     {
         MemoryKind.Fix => $"A failure like this (\"{entry.Headline}\") was fixed and verified by changing {string.Join(", ", entry.Files ?? [])}. {entry.Lesson}",
         MemoryKind.Rejection => $"For a failure like this (\"{entry.Headline}\"), this attempt was rejected: {entry.Lesson}",
-        _ => $"A person labelled a failure like this (\"{entry.Headline}\") as a {(entry.Label == FailureKind.ProductDefect ? "product defect" : "test issue")}. {entry.Lesson}",
+        _ => $"A person labelled a failure like this (\"{entry.Headline}\") as {(entry.Label switch { FailureKind.ProductDefect => "a product defect", FailureKind.Environment => "an environment problem", _ => "a test issue" })}. {entry.Lesson}",
     };
 
     private static string Shorten(string text, int max)

@@ -41,9 +41,12 @@ public static class ReportWriter
     public static string ToMarkdown(FixResult result)
     {
         var text = new StringBuilder();
-        text.AppendLine(result.Outcome == FixOutcome.ProductDefect
-            ? "## TestAgentHarness: product defect (test not changed)"
-            : $"## TestAgentHarness: {result.Outcome}");
+        text.AppendLine(result.Outcome switch
+        {
+            FixOutcome.ProductDefect => "## test-agent-harness: product defect (test not changed)",
+            FixOutcome.EnvironmentIssue => "## test-agent-harness: environment problem (nothing changed)",
+            _ => $"## test-agent-harness: {result.Outcome}",
+        });
         text.AppendLine();
         text.AppendLine($"- **Test:** `{result.Filter}`");
         text.AppendLine($"- **Triage:** {result.Triage.Kind}, decided by {result.Triage.Source}");
@@ -64,6 +67,16 @@ public static class ReportWriter
                 text.AppendLine();
                 text.AppendLine("> This verdict is a model's judgement, not a rule. Confirm it before raising the defect. If it is wrong, record that with `tah feedback --label test-issue` so the same failure is handled correctly next time.");
             }
+        }
+
+        if (result.Outcome == FixOutcome.EnvironmentIssue)
+        {
+            text.AppendLine();
+            text.AppendLine("### Why this is an environment problem");
+            text.AppendLine();
+            text.AppendLine(result.Triage.Reason);
+            text.AppendLine();
+            text.AppendLine("Neither the test nor the product was changed. Re-run once the environment is healthy.");
         }
 
         text.AppendLine();

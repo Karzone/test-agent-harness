@@ -65,6 +65,14 @@ public sealed partial class PatchPolicy(PatchPolicyOptions options)
             else
             {
                 Decreased(violations, path, Assertions, before, after, "removes an assertion");
+                if (!options.AllowExpectationChanges)
+                {
+                    var dropped = AssertionLiterals(before).Except(AssertionLiterals(after)).ToList();
+                    if (dropped.Count > 0)
+                    {
+                        violations.Add($"{path}: the change rewrites an expected value in an assertion ({string.Join(", ", dropped)}). What the product should do is not the harness's decision; if the expectation really is out of date, a person must change it.");
+                    }
+                }
             }
 
             Increased(violations, path, SkipMarkers, before, after, "skips or ignores a test");
@@ -123,6 +131,16 @@ public sealed partial class PatchPolicy(PatchPolicyOptions options)
         if (pattern.Matches(after).Count > pattern.Matches(before).Count) violations.Add($"{path}: the change {what}.");
     }
 
+    /// <summary>
+    /// The numbers and strings that appear on assertion lines: the expected values.
+    /// One that disappears means an expectation was changed or dropped.
+    /// </summary>
+    private static HashSet<string> AssertionLiterals(string code) =>
+        Lines(code)
+            .Where(line => Assertions.IsMatch(line))
+            .SelectMany(line => LiteralRegex().Matches(line).Select(m => m.Value))
+            .ToHashSet();
+
     /// <summary>The Then steps of a feature file, in order, including the And/But steps that follow them.</summary>
     private static List<string> ThenSteps(string featureText)
     {
@@ -156,6 +174,9 @@ public sealed partial class PatchPolicy(PatchPolicyOptions options)
         });
         return string.Join('\n', lines);
     }
+
+    [GeneratedRegex("\"(?:[^\"\\\\]|\\\\.)*\"|\\b\\d+(?:\\.\\d+)?\\b")]
+    private static partial Regex LiteralRegex();
 
     [GeneratedRegex(@"\bAssert\s*\.\s*\w+|\bExpect\s*\(|\.Should\w*\s*\(")]
     private static partial Regex AssertionRegex();

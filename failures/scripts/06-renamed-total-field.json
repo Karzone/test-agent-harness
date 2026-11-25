@@ -1,0 +1,64 @@
+{
+  "description": "A scripted 'model' for planted failure 06. It first tries to change the expected total in the test, which the guardrail refuses, then maps the renamed field in the test's DTO.",
+  "attempts": [
+    [
+      {
+        "calls": [
+          {
+            "tool": "read_file",
+            "args": {
+              "path": "sample/TinyShop.ApiTests/BasketApiTests.cs"
+            }
+          }
+        ]
+      },
+      {
+        "say": "The total comes back as 0 now. Expect 0.",
+        "calls": [
+          {
+            "tool": "replace_in_file",
+            "args": {
+              "path": "sample/TinyShop.ApiTests/BasketApiTests.cs",
+              "old_text": "Assert.That(basket.TotalPence, Is.EqualTo(350));",
+              "new_text": "Assert.That(basket.TotalPence, Is.EqualTo(0));"
+            }
+          }
+        ]
+      },
+      {
+        "say": "Not allowed, and wrong anyway. The API renamed the field; the DTO has to follow it.",
+        "calls": [
+          {
+            "tool": "read_file",
+            "args": {
+              "path": "sample/TinyShop.ApiTests/ShopApiClient.cs"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "tool": "replace_in_file",
+            "args": {
+              "path": "sample/TinyShop.ApiTests/ShopApiClient.cs",
+              "old_text": "public sealed record BasketDto(string Id, string[] Items, int DiscountPercent, int TotalPence);",
+              "new_text": "public sealed record BasketDto(\n    string Id,\n    string[] Items,\n    int DiscountPercent,\n    [property: System.Text.Json.Serialization.JsonPropertyName(\"totalInPence\")] int TotalPence);"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "tool": "run_test",
+            "args": {}
+          }
+        ]
+      },
+      {
+        "say": "The API now returns the basket total as totalInPence (an intended contract change). The test DTO still read totalPence, so it saw 0. Mapped the renamed field in ShopApiClient.cs; run_test passes.\nVERDICT: TEST_ISSUE"
+      }
+    ]
+  ]
+}

@@ -16,7 +16,8 @@ public static class TriageTests
         {
             Verdict("No matching step definition found for the step", [], null, FailureKind.TestIssue, "MissingStepBinding");
             Verdict("Timeout 5000ms exceeded", [], null, FailureKind.ProductDefect, "BrowserScriptError", stdOut: "[browser] pageerror: ReferenceError: order is not defined");
-            Verdict("Request failed with status code 503", ["src/api.cs"], null, FailureKind.ProductDefect, "ServerError");
+            Verdict("Request failed with status code 500", ["src/api.cs"], null, FailureKind.ProductDefect, "ServerError");
+            Verdict("Request failed with status code 503", ["src/api.cs"], null, FailureKind.Environment, "EnvironmentUnavailable");
             Verdict("  Expected: \"a\"\n  But was:  \"b\"", ["tests/Steps.cs"], null, FailureKind.TestIssue, "OnlyTestCodeChanged");
             Verdict("  Expected: \"a\"\n  But was:  \"b\"", ["src/app.js"], "Refactor. No behaviour change intended.", FailureKind.ProductDefect, "BehaviourChangedByRefactor");
             Verdict("Timeout 5000ms exceeded.\nCall log:\n  - waiting for Locator(\"#x\")", ["src/index.html"], null, FailureKind.TestIssue, "LocatorTimeoutAfterMarkupChange");
@@ -147,13 +148,19 @@ public static class TriageTests
         var entry = manifest.RootElement.EnumerateArray().Single(e => e.GetProperty("id").GetString() == failureId);
         var patch = entry.GetProperty("patch").GetString()!;
 
+        // API failures name their own test project, roots and neighbours; UI failures use the defaults.
+        IReadOnlyList<string> roots = entry.TryGetProperty("testRoots", out var r)
+            ? r.EnumerateArray().Select(x => x.GetString()!).ToArray()
+            : HarnessTests.TestRoots;
+        var neighbours = entry.TryGetProperty("neighbourFilter", out var n) ? n.GetString() : HarnessTests.AllTests;
+
         return new FixRequest(
             repo.Path,
             entry.GetProperty("filter").GetString()!,
-            HarnessTests.TestRoots,
+            roots,
             patch,
             entry.GetProperty("prNote").GetString(),
-            HarnessTests.AllTests,
+            neighbours,
             ChangeDiff: repo.Read(patch));
     }
 

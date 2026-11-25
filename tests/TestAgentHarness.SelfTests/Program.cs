@@ -16,5 +16,6 @@ TriageTests.Register(suite);
 MemoryTests.Register(suite);
 EvalTests.Register(suite);
 StoryTests.Register(suite);
+BackendTests.Register(suite);
 
 return await suite.RunAsync(args.FirstOrDefault());

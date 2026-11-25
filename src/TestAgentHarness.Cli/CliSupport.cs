@@ -38,6 +38,15 @@ public sealed class CliOptions
 /// <summary>Repository settings from testagentharness.json at the repository root.</summary>
 public sealed record RepoConfig(string TestProject, string[] TestRoots, string? NeighbourFilter)
 {
+    /// <summary>
+    /// The settings for one run. A repository can hold several test suites (UI, API);
+    /// command-line options win, then the planted failure's own settings, then the defaults.
+    /// </summary>
+    public RepoConfig For(CliOptions options, PlantedFailure? failure) => new(
+        options.Get("project") ?? failure?.TestProject ?? TestProject,
+        options.Get("test-roots")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? failure?.TestRoots ?? TestRoots,
+        options.Get("neighbours") ?? (failure?.TestProject is null ? NeighbourFilter : failure.NeighbourFilter));
+
     public static RepoConfig Load(string repoPath)
     {
         var path = Path.Combine(repoPath, "testagentharness.json");
@@ -53,7 +62,10 @@ public sealed record RepoConfig(string TestProject, string[] TestRoots, string? 
 }
 
 /// <summary>One entry in failures/manifest.json.</summary>
-public sealed record PlantedFailure(string Id, string Kind, string Title, string Patch, string Filter, string PrNote, string ExpectedOutcome)
+/// <param name="TestProject">Optional: the test project this failure belongs to, when it is not the default one.</param>
+public sealed record PlantedFailure(
+    string Id, string Kind, string Title, string Patch, string Filter, string PrNote, string ExpectedOutcome,
+    string? TestProject = null, string[]? TestRoots = null, string? NeighbourFilter = null)
 {
     public static IReadOnlyList<PlantedFailure> LoadAll(string repoPath)
     {
@@ -68,7 +80,10 @@ public sealed record PlantedFailure(string Id, string Kind, string Title, string
             e.GetProperty("patch").GetString()!,
             e.GetProperty("filter").GetString()!,
             e.GetProperty("prNote").GetString()!,
-            e.GetProperty("expectedOutcome").GetString()!)).ToList();
+            e.GetProperty("expectedOutcome").GetString()!,
+            e.TryGetProperty("testProject", out var project) ? project.GetString() : null,
+            e.TryGetProperty("testRoots", out var roots) ? roots.EnumerateArray().Select(r => r.GetString()!).ToArray() : null,
+            e.TryGetProperty("neighbourFilter", out var neighbours) ? neighbours.GetString() : null)).ToList();
     }
 }
 

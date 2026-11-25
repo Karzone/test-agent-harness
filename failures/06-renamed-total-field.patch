@@ -1,0 +1,13 @@
+diff --git a/sample/TinyShop.Api/ShopApi.cs b/sample/TinyShop.Api/ShopApi.cs
+index 6833ba0..8277050 100644
+--- a/sample/TinyShop.Api/ShopApi.cs
++++ b/sample/TinyShop.Api/ShopApi.cs
+@@ -11,7 +11,7 @@ public sealed record AddItemRequest(string ProductId);
+ 
+ public sealed record DiscountRequest(string Code);
+ 
+-public sealed record BasketResponse(string Id, string[] Items, int DiscountPercent, int TotalPence);
++public sealed record BasketResponse(string Id, string[] Items, int DiscountPercent, int TotalInPence);
+ 
+ public sealed record OrderResponse(string OrderId, string Status, int TotalPence);
+ 

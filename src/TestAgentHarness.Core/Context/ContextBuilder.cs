@@ -30,15 +30,17 @@ public static class ContextBuilder
         First decide which of two things happened:
         - TEST ISSUE: the product behaves as intended and the test is out of date or badly written. Fix the test.
         - PRODUCT DEFECT: the test is right and the product is wrong. Do not edit anything. Explain the evidence.
+        If instead the system under test simply could not be reached (connection refused, DNS, gateway error), that is an ENVIRONMENT problem: change nothing and say so.
 
         How to work:
         - Read the failure and the recent change, then read the test code and the product code it exercises before changing anything.
         - Make the smallest change that makes the test correct again.
-        - You may only change test code. Never weaken a test to make it pass: do not remove assertions, skip tests, add fixed waits, or rewrite what a Then step expects. Edits that break these rules are rejected.
+        - You may only change test code. Never weaken a test to make it pass: do not remove assertions, skip tests, add fixed waits, or rewrite an expected value (in a Then step or in an assertion). Edits that break these rules are rejected.
         - Run the test with run_test after editing. Do not say it is fixed unless run_test passed.
         - Finish with a plain-text reply (no tool call) that says what you found, and end it with exactly one of these lines:
           VERDICT: TEST_ISSUE
           VERDICT: PRODUCT_DEFECT
+          VERDICT: ENVIRONMENT
 
         Your work is checked independently after you finish: the test is re-run several times and the diff is inspected. Saying it is fixed does not make it so.
         """;
@@ -95,5 +97,10 @@ public static class ContextBuilder
         return [ChatMessage.System(SystemPrompt), ChatMessage.User(task.ToString().TrimEnd())];
     }
 
-    private static string Describe(FailureKind kind) => kind == FailureKind.TestIssue ? "test issue" : "product defect";
+    private static string Describe(FailureKind kind) => kind switch
+    {
+        FailureKind.TestIssue => "test issue",
+        FailureKind.ProductDefect => "product defect",
+        _ => "environment problem",
+    };
 }

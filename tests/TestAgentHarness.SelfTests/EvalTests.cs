@@ -22,7 +22,7 @@ public static class EvalTests
             Check.Equal(EvalVerdict.Invalid, EvalRunner.Judge(FailureKind.TestIssue, FixOutcome.NotReproduced), "not reproduced");
         });
 
-        suite.Add("eval: all five planted failures come out right with the scripted models", async () =>
+        suite.Add("eval: the five UI planted failures come out right with the scripted models", async () =>
         {
             using var repo = await TempRepo.CreateAsync();
             var summary = await EvalRunner.RunAsync("scripted", Cases(repo), evalCase =>
@@ -61,7 +61,9 @@ public static class EvalTests
     private static List<EvalCase> Cases(TempRepo repo)
     {
         using var manifest = JsonDocument.Parse(repo.Read("failures/manifest.json"));
-        return manifest.RootElement.EnumerateArray().Select(entry =>
+        // The UI failures only: they run on the fast simulator. The API failures
+        // run against the real API in BackendTests and in the capability report.
+        return manifest.RootElement.EnumerateArray().Where(entry => !entry.TryGetProperty("testProject", out _)).Select(entry =>
         {
             var id = entry.GetProperty("id").GetString()!;
             var expected = entry.GetProperty("kind").GetString() == "product-defect" ? FailureKind.ProductDefect : FailureKind.TestIssue;

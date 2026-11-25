@@ -1,0 +1,41 @@
+{
+  "description": "A scripted 'model' for planted failure 07: the discount endpoint moved and the test client calls the old route.",
+  "attempts": [
+    [
+      {
+        "calls": [
+          {
+            "tool": "search",
+            "args": {
+              "text": "/discount"
+            }
+          }
+        ]
+      },
+      {
+        "say": "The route moved to /discounts; the client still posts to /discount.",
+        "calls": [
+          {
+            "tool": "replace_in_file",
+            "args": {
+              "path": "sample/TinyShop.ApiTests/ShopApiClient.cs",
+              "old_text": "http.PostAsJsonAsync($\"/baskets/{basketId}/discount\", new { code });",
+              "new_text": "http.PostAsJsonAsync($\"/baskets/{basketId}/discounts\", new { code });"
+            }
+          }
+        ]
+      },
+      {
+        "calls": [
+          {
+            "tool": "run_test",
+            "args": {}
+          }
+        ]
+      },
+      {
+        "say": "The discount endpoint moved from /discount to /discounts (an intended change). Updated the route in ShopApiClient.cs; run_test passes.\nVERDICT: TEST_ISSUE"
+      }
+    ]
+  ]
+}
